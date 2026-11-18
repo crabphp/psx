@@ -9,6 +9,7 @@ use Crab\Psx\Query;
 use Crab\Psx\QueryData;
 use Crab\Psx\Redirect;
 use Crab\Psx\Tests\Support\Posts;
+use Crab\Psx\Inject;
 use Crab\Routing\FromQuery;
 use Crab\Validation\Length;
 
@@ -51,81 +52,76 @@ function view(int $id, array $post): PostView
     return new PostView($id, $post['title'], $post['version'], Status::Draft, new \DateTimeImmutable('2026-01-02T03:04:05+00:00'));
 }
 
-final readonly class Server
+/** @return PageData<EditData>|Failure|Redirect */
+function load(int $id, #[Inject] Posts $posts, #[FromQuery] string $tab = 'main'): PageData|Failure|Redirect
 {
-    public function __construct(private Posts $posts) {}
-
-    /** @return PageData<EditData>|Failure|Redirect */
-    public function load(int $id, #[FromQuery] string $tab = 'main'): PageData|Failure|Redirect
-    {
-        $this->posts->ran[] = 'page';
-        if ($id === 1) {
-            return Redirect::to('/posts/7');
-        }
-        $post = $this->posts->posts[$id] ?? null;
-        if ($post === null) {
-            return Failure::notFound('No such post.');
-        }
-        $closing = "?> is text here, and </script> too";
-        return PageData::of(new EditData(view($id, $post)))
-            ->head(Head::title("Edit {$post['title']}")->withDescription('Editing <a post> & more'))
-            ->tags('posts', "post:{$id}");
+    $posts->ran[] = 'page';
+    if ($id === 1) {
+        return Redirect::to('/posts/7');
     }
-
-    /** @return ActionResult<PostView> */
-    #[Action]
-    public function savePost(int $id, SavePost $input): ActionResult
-    {
-        $this->posts->ran[] = 'savePost';
-        $post = $this->posts->posts[$id] ?? null;
-        if ($post === null) {
-            return ActionResult::fail(Failure::notFound('No such post.'));
-        }
-        if ($post['version'] !== $input->version) {
-            return ActionResult::fail(Failure::conflict('Someone else saved this post.'));
-        }
-        if ($input->title === 'taken') {
-            return ActionResult::fail(Failure::validation(['title' => 'is taken']));
-        }
-        $this->posts->posts[$id] = ['title' => $input->title, 'version' => $post['version'] + 1];
-        return ActionResult::ok(view($id, $this->posts->posts[$id]))
-            ->invalidate('posts', "post:{$id}")
-            ->redirect(Redirect::to("/posts/{$id}"))
-            ->cookie(new Cookie('saved', (string) $id))
-            ->cookie(new Cookie('again', '1'));
+    $post = $posts->posts[$id] ?? null;
+    if ($post === null) {
+        return Failure::notFound('No such post.');
     }
+    $closing = "?> is text here, and </script> too";
+    return PageData::of(new EditData(view($id, $post)))
+        ->head(Head::title("Edit {$post['title']}")->withDescription('Editing <a post> & more'))
+        ->tags('posts', "post:{$id}");
+}
 
-    #[Action]
-    public function touch(int $id): void
-    {
-        $this->posts->ran[] = 'touch';
+/** @return ActionResult<PostView> */
+#[Action]
+function savePost(int $id, SavePost $input, #[Inject] Posts $posts): ActionResult
+{
+    $posts->ran[] = 'savePost';
+    $post = $posts->posts[$id] ?? null;
+    if ($post === null) {
+        return ActionResult::fail(Failure::notFound('No such post.'));
     }
+    if ($post['version'] !== $input->version) {
+        return ActionResult::fail(Failure::conflict('Someone else saved this post.'));
+    }
+    if ($input->title === 'taken') {
+        return ActionResult::fail(Failure::validation(['title' => 'is taken']));
+    }
+    $posts->posts[$id] = ['title' => $input->title, 'version' => $post['version'] + 1];
+    return ActionResult::ok(view($id, $posts->posts[$id]))
+        ->invalidate('posts', "post:{$id}")
+        ->redirect(Redirect::to("/posts/{$id}"))
+        ->cookie(new Cookie('saved', (string) $id))
+        ->cookie(new Cookie('again', '1'));
+}
 
-    #[Action]
-    public function explode(int $id): int
-    {
-        throw new \RuntimeException('It broke after it began.');
-    }
+#[Action]
+function touch(int $id, #[Inject] Posts $posts): void
+{
+    $posts->ran[] = 'touch';
+}
 
-    /** @return QueryData<PostView>|Failure|Redirect */
-    #[Query]
-    public function history(int $id, #[FromQuery] int $limit = 10): QueryData|Failure|Redirect
-    {
-        $this->posts->ran[] = 'history';
-        if ($limit === 0) {
-            return Redirect::to('/login');
-        }
-        if ($limit > 100) {
-            return Failure::forbidden('That is too many.');
-        }
-        return QueryData::of(view($id, $this->posts->posts[$id]))->tags("post:{$id}");
-    }
+#[Action]
+function explode(int $id): int
+{
+    throw new \RuntimeException('It broke after it began.');
+}
 
-    #[Query]
-    public function broken(int $id): int
-    {
-        return PHP_INT_MAX;
+/** @return QueryData<PostView>|Failure|Redirect */
+#[Query]
+function history(int $id, #[Inject] Posts $posts, #[FromQuery] int $limit = 10): QueryData|Failure|Redirect
+{
+    $posts->ran[] = 'history';
+    if ($limit === 0) {
+        return Redirect::to('/login');
     }
+    if ($limit > 100) {
+        return Failure::forbidden('That is too many.');
+    }
+    return QueryData::of(view($id, $posts->posts[$id]))->tags("post:{$id}");
+}
+
+#[Query]
+function broken(int $id): int
+{
+    return PHP_INT_MAX;
 }
 </script>
 import { useState } from 'react';

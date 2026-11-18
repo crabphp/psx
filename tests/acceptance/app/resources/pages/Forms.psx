@@ -3,6 +3,7 @@ use Acceptance\Store;
 use Crab\Psx\Action;
 use Crab\Psx\ActionResult;
 use Crab\Psx\Failure;
+use Crab\Psx\Inject;
 use Crab\Validation\ListOf;
 
 enum Intent: string
@@ -40,25 +41,20 @@ final readonly class Blank
     public function __construct(public string $hint) {}
 }
 
-final readonly class Server
+function load(): Blank
 {
-    public function __construct(private Store $store) {}
+    return new Blank('Fill it in.');
+}
 
-    public function load(): Blank
-    {
-        return new Blank('Fill it in.');
+/** @return ActionResult<Echoed> */
+#[Action]
+function submit(Entry $entry, #[Inject] Store $store): ActionResult
+{
+    if (trim($entry->title) === '') {
+        return ActionResult::fail(Failure::validation(['title' => 'is needed']));
     }
-
-    /** @return ActionResult<Echoed> */
-    #[Action]
-    public function submit(Entry $entry): ActionResult
-    {
-        if (trim($entry->title) === '') {
-            return ActionResult::fail(Failure::validation(['title' => 'is needed']));
-        }
-        $this->store->record('submit', 'anyone', $entry->title);
-        return ActionResult::ok(new Echoed($entry->title, $entry->tags, $entry->note, $entry->intent, $entry->pinned));
-    }
+    $store->record('submit', 'anyone', $entry->title);
+    return ActionResult::ok(new Echoed($entry->title, $entry->tags, $entry->note, $entry->intent, $entry->pinned));
 }
 </script>
 import { useActionState, useState } from 'react';

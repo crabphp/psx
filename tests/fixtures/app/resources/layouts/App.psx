@@ -1,6 +1,7 @@
 <script lang="php">
 use Crab\Psx\Query;
 use Crab\Psx\Tests\Support\Posts;
+use Crab\Psx\Inject;
 use Crab\Routing\FromQuery;
 
 final readonly class Viewer
@@ -11,21 +12,16 @@ final readonly class Viewer
     ) {}
 }
 
-final readonly class Server
+function load(#[Inject] Posts $posts, #[FromQuery] string $theme = 'light'): Viewer
 {
-    public function __construct(private Posts $posts) {}
+    $posts->ran[] = 'layout';
+    return new Viewer('Ada', $theme);
+}
 
-    public function load(#[FromQuery] string $theme = 'light'): Viewer
-    {
-        $this->posts->ran[] = 'layout';
-        return new Viewer('Ada', $theme);
-    }
-
-    #[Query]
-    public function ping(): string
-    {
-        return 'pong';
-    }
+#[Query]
+function ping(): string
+{
+    return 'pong';
 }
 </script>
 import type { Props } from '@psx/types/layouts/App';

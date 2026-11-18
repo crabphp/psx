@@ -1,6 +1,6 @@
 # Implementation status
 
-Version 0.1.0, released 2026-11-18; the test evidence below is from 2026-11-15, with the PHP and TypeScript suites rerun on 2026-11-18. This file records what was built from [DESIGN.md](DESIGN.md), what proves it, where the implementation differs from the design, and what is missing. The design itself is copied from `brainstorm/psx`, with one deliberate change since: on 2026-11-17 the PHP of a `.psx` file moved from `<?php` … `?>` to a `<script lang="php">` block (section 4 and its examples). Nothing was removed from it to make this list shorter.
+Version 0.2.0, released 2026-11-18; the test evidence below is from 2026-11-15, with the PHP and TypeScript suites rerun on 2026-11-18. This file records what was built from [DESIGN.md](DESIGN.md), what proves it, where the implementation differs from the design, and what is missing. The design itself is copied from `brainstorm/psx`, with two deliberate changes since: on 2026-11-17 the PHP of a `.psx` file moved from `<?php` … `?>` to a `<script lang="php">` block, and on 2026-11-18 from a hand-written `Server` class to functions with `#[Inject]` services (section 4 and its examples). Nothing was removed from it to make this list shorter.
 
 **This is not a production release.** Section 26 of the design lists the acceptance gates; the last table here says which have an automated proof. The readiness pass of 2026-11-15, its evidence, measurements, limits and what is still open are in [reports/production-readiness.md](reports/production-readiness.md).
 
@@ -42,7 +42,7 @@ Lint and format: `mago lint` and `mago fmt --check` clean for `psx/`; `prettier 
 | `.psx` split: leading `<script lang="php">` block, TSX below, line numbers kept | Yes | P |
 | PHP strings, comments, heredocs holding `</script>`; TSX generics and comparisons | Yes | P |
 | The earlier `<?php` … `?>` form, a `?>` in the block, PHP below it, extra attributes: refused with file and line | Yes | P |
-| One `final readonly class Server`; `load()`, `#[Query]`, `#[Action]`; other public methods refused | Yes | P |
+| Functions: `load()`, `#[Query]`, `#[Action]`; services as `#[Inject]` parameters; `$this` and a hand-written `Server` class refused; the class the router calls made by the compiler, errors on the function's line | Yes | P |
 | Local classes, enums, functions and constants namespaced per file, no collisions | Yes | P |
 | Shapes: scalars, dates, backed enums, nullable, `#[ListOf]`, `#[MapOf]`, readonly DTOs; `mixed`, untyped arrays, recursion refused with file and line | Yes | P (46 compiler tests, negative fixtures) |
 | `@return PageData<T>|Failure|Redirect` and the like read from the docblock | Yes | P |
@@ -128,7 +128,7 @@ Lint and format: `mago lint` and `mago fmt --check` clean for `psx/`; `prettier 
 - **Review state.** The rounds 1–4 fix batch is accepted for the reviewed scope: [round-4 verification](reviews/implementation-round-4-final-fixes.md) and the [final R4-S01 re-check](reviews/implementation-round-4-recheck.md) close the identified findings. The final independent harness passed; the coordinator recorded its result after a reviewer transport error. This is not production approval: the remaining acceptance gates below still apply. Earlier fixes remain recorded in [the server/build report](reviews/implementation-round-1-server-build-fixes.md).
 
 - **No separate reviewer has gone over the readiness pass as a whole.** It changed production code in the router, the start-up, the query cache and the renderer's lifecycle; see the report for the list. The coordinator reviewed the lifecycle and cache changes, found and rechecked three defects in them, reran READY-C01 to C03 and ran the complete suites on the final source.
-- **Open defect: a renderer can outlive its server.** A server whose PHP processes are killed outright, or whose renderer worker is, leaves the Node renderer running until someone ends it. Stopping the server is clean. See the report.
+- **Fixed after 0.1.0: a renderer outliving its server.** A renderer the server runs is started with `--exit-with-parent` and stops within about a second of the process that started it being killed outright. A renderer whose address was taken by the one started in its place no longer removes that one's socket when it stops: closing a listening socket removes the file at its path, whosever it is now. Proven by Vitest (the watch, and two renderers at one path) and by a real renderer whose parent was killed with `SIGKILL`: it stopped 0.95 s later and removed its socket, where one without the flag kept running. The whole-server reproduction of the report was not run again.
 - **Untested design gates**: Arc pages and a custom error renderer beside PSX; a 429 from the application's own rate limit.
 - **One call is not one delivery.** PSX sends a write once. A browser was seen to send a `POST` again by itself when a reused connection died before any answer; an operation that must happen once needs an idempotency key of the application's own.
 - **Tested on one Linux machine with Chromium only.**

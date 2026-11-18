@@ -250,11 +250,11 @@ test('a build that fails selects nothing, publishes nothing, and leaves what is 
     const was = state();
     const broken = {
         'TypeScript that does not check': ['resources/pages/Forms.psx', 'const idle: State =', "const wrong: number = 'not a number';\nconst idle: State ="],
-        'PHP that does not parse': ['resources/pages/Home.psx', 'final readonly class Server', 'final readonly clas Server'],
+        'PHP that does not parse': ['resources/pages/Home.psx', 'function load(', 'functio load('],
         'a page declared with a file that is not there': ['routes/pages.php', "'resources/pages/Lazy.psx'", "'resources/pages/Gone.psx'"],
         'a script that imports a file of the server’s': ['resources/pages/Lazy.psx', "import { clientOnly } from '@crabphp/psx';", "import { clientOnly } from '@crabphp/psx';\nimport settings from '../../.env?raw';\nconsole.log(settings);"],
         'a script that imports what does not exist': ['resources/pages/Lazy.psx', "import { clientOnly } from '@crabphp/psx';", "import { clientOnly } from '@crabphp/psx';\nimport { nothing } from './nowhere';\nconsole.log(nothing);"],
-        'a loader that does not say what it returns': ['resources/pages/Lazy.psx', 'public function load(): Shown', 'public function load()'],
+        'a loader that does not say what it returns': ['resources/pages/Lazy.psx', 'function load(): Shown', 'function load()'],
     };
     for (const [what, [file, from, to]] of Object.entries(broken)) {
         const restore = edit(file, from, to);

@@ -300,6 +300,8 @@ final class PsxDefinition implements Definition
                 '--max-inflight=' . (int) $kernel->config('ssr.max_inflight'),
                 '--max-queue=' . (int) $kernel->config('ssr.max_queue'),
                 "--timeout-seconds={$timeout}",
+                // Killed outright, this server process cannot stop its renderer: the renderer stops itself.
+                '--exit-with-parent',
             ])));
         }
         $limits = [

@@ -7,13 +7,10 @@ final readonly class TenantData
     public function __construct(public string $tenant) {}
 }
 
-final readonly class Server
+/** @return PageData<TenantData> */
+function load(string $tenant): PageData
 {
-    /** @return PageData<TenantData> */
-    public function load(string $tenant): PageData
-    {
-        return PageData::of(new TenantData($tenant))->head(Head::title("Tenant {$tenant}"));
-    }
+    return PageData::of(new TenantData($tenant))->head(Head::title("Tenant {$tenant}"));
 }
 </script>
 import { useState } from 'react';

@@ -38,7 +38,7 @@ final class CompilerTest extends TestCase
         self::assertStringNotContainsString('<?php', $tsx);
         self::assertStringNotContainsString('Posts $posts', $tsx);
         $load = array_search(
-            '    public function load(int $id, #[FromQuery] string $tab = \'main\'): PageData|Failure|Redirect',
+            'function load(int $id, #[Inject] Posts $posts, #[FromQuery] string $tab = \'main\'): PageData|Failure|Redirect',
             $lines,
             true,
         );
@@ -200,7 +200,7 @@ final class CompilerTest extends TestCase
             'resources/pages/Other.psx' =>
                 "<script lang=\"php\">\nfinal readonly class EditData { public function __construct(public string \$other) {} }\n"
                     . "function view(): string { return 'other'; }\n"
-                    . "final readonly class Server { public function load(): EditData { return new EditData(view()); } }\n</script>\nexport default function Other() { return null; }\n",
+                    . "function load(): EditData { return new EditData(view()); }\n</script>\nexport default function Other() { return null; }\n",
             'routes/more.php' => "<?php\nreturn static function (\$pages): void { \$pages->page('/other', 'resources/pages/Other.psx')->name('other'); };\n",
         ]);
         $fixture->write('routes/pages.php', str_replace(
@@ -279,7 +279,7 @@ final class CompilerTest extends TestCase
             'resources/pages/Home.psx' => "<script lang=\"php\">\n{$php}\n</script>\n{$tsx}",
         ];
         $server =
-            static fn(string $methods): string => "use Crab\\Psx\\Action;\nuse Crab\\Psx\\Query;\nuse Crab\\Psx\\PageData;\nuse Crab\\Psx\\ActionResult;\nuse Crab\\Psx\\Failure;\nfinal readonly class Server\n{\n{$methods}\n}";
+            static fn(string $methods): string => "use Crab\\Psx\\Action;\nuse Crab\\Psx\\Query;\nuse Crab\\Psx\\PageData;\nuse Crab\\Psx\\ActionResult;\nuse Crab\\Psx\\Failure;\nuse Crab\\Psx\\Inject;\n{$methods}";
 
         yield 'a statement that runs' => [
             $page('echo "hello";'),
@@ -294,7 +294,7 @@ final class CompilerTest extends TestCase
             'declare(strict_types=1); it cannot declare anything else',
         ];
         yield 'a block never closed' => [
-            ['resources/pages/Home.psx' => "<script lang=\"php\">\nfinal readonly class Server {}\n"],
+            ['resources/pages/Home.psx' => "<script lang=\"php\">\nfunction load(): int { return 1; }\n"],
             'The PHP block is not closed',
         ];
         yield 'php after the block' => [
@@ -325,115 +325,119 @@ final class CompilerTest extends TestCase
             ['resources/pages/Home.psx' => "<script lang=\"php\">\nconst A = 1;\n</script> export default 1;\n"],
             'resources/pages/Home.psx:3: The TSX starts on the line after the </script>',
         ];
-        yield 'a Server that is not readonly' => [
-            $page('final class Server {}'),
-            'declared "final readonly class Server"',
+        yield 'a Server class written by hand' => [
+            $page('final readonly class Server {}'),
+            'resources/pages/Home.psx:2: A .psx file is written as functions, and the compiler makes its Server class from them',
         ];
         yield 'a syntax error' => [
-            $page("final readonly class Server {\n    public function load( {}\n}"),
-            'resources/pages/Home.psx:3: ',
+            $page('function load( {}'),
+            'resources/pages/Home.psx:2: ',
         ];
-        yield 'an unmarked public method' => [
-            $page($server('    public function helper(): int { return 1; }')),
-            'resources/pages/Home.psx:9: helper() is public and marked neither',
+        yield '$this in a function' => [
+            $page($server("    #[Query]\n    function find(): int { return \$this->n; }")),
+            'resources/pages/Home.psx:9: find() uses $this',
         ];
         yield 'both a query and an action' => [
-            $page($server("    #[Query]\n    #[Action]\n    public function both(): int { return 1; }")),
+            $page($server("    #[Query]\n    #[Action]\n    function both(): int { return 1; }")),
             'marked both #[Query] and #[Action]',
         ];
         yield 'a marked load' => [
-            $page($server("    #[Query]\n    public function load(): int { return 1; }")),
+            $page($server("    #[Query]\n    function load(): int { return 1; }")),
             'load() is the page\'s loader',
         ];
         yield 'no return type' => [
-            $page($server("    #[Query]\n    public function find() { return 1; }")),
+            $page($server("    #[Query]\n    function find() { return 1; }")),
             'find() declares no return type',
         ];
         yield 'an array nobody described' => [
-            $page($server("    #[Query]\n    public function find(): array { return []; }")),
+            $page($server("    #[Query]\n    function find(): array { return []; }")),
             'is an array, which does not say what it holds',
         ];
         yield 'mixed' => [
-            $page($server("    #[Query]\n    public function find(): mixed { return 1; }")),
+            $page($server("    #[Query]\n    function find(): mixed { return 1; }")),
             'is mixed, which does not say what the page receives',
         ];
         yield 'a loader of a scalar' => [
-            $page($server('    public function load(): int { return 1; }')),
+            $page($server('    function load(): int { return 1; }')),
             'load() returns the page\'s props',
         ];
         yield 'a wrapper without its type' => [
-            $page($server('    public function load(): PageData { return PageData::of(null); }')),
+            $page($server('    function load(): PageData { return PageData::of(null); }')),
             'has no docblock saying of what',
         ];
         yield 'a docblock that disagrees' => [
             $page($server(
-                "    /** @return PageData<Failure>|Failure */\n    public function load(): PageData { return PageData::of(null); }",
+                "    /** @return PageData<Failure>|Failure */\n    function load(): PageData { return PageData::of(null); }",
             )),
             'docblock and its return type disagree',
         ];
         yield 'an action with a bare failure' => [
-            $page($server("    #[Action]\n    public function save(): int|Failure { return 1; }")),
+            $page($server("    #[Action]\n    function save(): int|Failure { return 1; }")),
             'Return an ActionResult',
         ];
         yield 'a model for an output' => [
             $page(
                 "final class Model { public string \$name = ''; }\n"
-                    . $server("    #[Query]\n    public function find(): Model { return new Model(); }"),
+                    . $server("    #[Query]\n    function find(): Model { return new Model(); }"),
             ),
             'is not readonly',
         ];
         yield 'an output that holds itself' => [
             $page(
                 "final readonly class Node { public function __construct(public ?Node \$next) {} }\n"
-                    . $server("    #[Query]\n    public function find(): Node { return new Node(null); }"),
+                    . $server("    #[Query]\n    function find(): Node { return new Node(null); }"),
             ),
             'which holds itself',
         ];
         yield 'an unbacked enum' => [
-            $page(
-                "enum Kind { case A; }\n"
-                    . $server("    #[Query]\n    public function find(): Kind { return Kind::A; }"),
-            ),
+            $page("enum Kind { case A; }\n" . $server("    #[Query]\n    function find(): Kind { return Kind::A; }")),
             'has no backing values',
         ];
-        yield 'a static method' => [
-            $page($server("    #[Query]\n    public static function find(): int { return 1; }")),
-            'find() is static',
+        yield 'a service given to a function the page does not call' => [
+            $page($server('    function helper(#[Inject] \\DateTimeImmutable $now): int { return 1; }')),
+            'resources/pages/Home.psx:8: helper() marks $now #[Inject]',
         ];
-        yield 'magic dispatch' => [
-            $page($server('    public function __call(string $name, array $arguments): mixed { return 1; }')),
-            'has __call()',
+        yield 'a service without a type' => [
+            $page($server("    #[Query]\n    function find(#[Inject] \$clock): int { return 1; }")),
+            'resources/pages/Home.psx:9: #[Inject] $clock of find() is a service: give it a class type',
+        ];
+        yield 'one name for two services' => [
+            $page($server(
+                "    #[Query]\n    function a(#[Inject] \\DateTimeImmutable \$x): int { return 1; }\n"
+                . "    #[Query]\n    function b(#[Inject] \\ArrayObject \$x): int { return 1; }",
+            )),
+            'one name is one service in a file',
         ];
         yield 'a binding the tsx declares' => [
             $page(
-                $server("    #[Query]\n    public function find(): int { return 1; }"),
+                $server("    #[Query]\n    function find(): int { return 1; }"),
                 "const \$find = 1;\nexport default function Home() { return null; }\n",
             ),
-            'resources/pages/Home.psx:13: The TSX declares $find',
+            'resources/pages/Home.psx:11: The TSX declares $find, which is the name the PHP function find() is given',
         ];
         yield 'an action that reads the query' => [
             $page(
                 "use Crab\\Routing\\FromQuery;\n"
-                    . $server("    #[Action]\n    public function save(#[FromQuery] string \$mode): int { return 1; }"),
+                    . $server("    #[Action]\n    function save(#[FromQuery] string \$mode): int { return 1; }"),
             ),
             'The action save() reads the query string',
         ];
         yield 'a query with a body' => [
             $page(
                 "final readonly class Body { public function __construct(public string \$a) {} }\n"
-                    . $server("    #[Query]\n    public function find(Body \$body): int { return 1; }"),
+                    . $server("    #[Query]\n    function find(Body \$body): int { return 1; }"),
             ),
             'as its body, and a GET request has none',
         ];
         yield 'a path parameter the path lacks' => [
-            $page($server('    public function load(int $id): ?Failure { return null; }')),
+            $page($server('    function load(int $id): ?Failure { return null; }')),
             'resources/pages/Home.psx',
         ];
         yield 'a server nobody declared' => [
             [
-                'resources/components/Stray.psx' => "<script lang=\"php\">\nfinal readonly class Server {}\n</script>\nexport default function Stray() { return null; }\n",
+                'resources/components/Stray.psx' => "<script lang=\"php\">\nfunction load(): int { return 1; }\n</script>\nexport default function Stray() { return null; }\n",
             ],
-            'resources/components/Stray.psx: The file has a Server class and is not declared',
+            'resources/components/Stray.psx: The file has PHP the page calls, load() or a #[Query] or #[Action], and is not declared',
         ];
         $pages = static fn(string $body): array => [
             'routes/pages.php' => "<?php\nreturn static function (\$pages): void {\n{$body}\n};\n",
@@ -442,7 +446,7 @@ final class CompilerTest extends TestCase
             'resources/pages/Posts/Index.psx' => null,
             ...(str_contains($body, 'layouts/App.psx') ? [] : ['resources/layouts/App.psx' => null]),
         ];
-        $files = "<script lang=\"php\">\nuse Crab\\Psx\\Query;\nfinal readonly class Listing { public function __construct(public string \$tail) {} }\nfinal readonly class Server\n{\n    public function load(string \$tail): Listing { return new Listing(\$tail); }\n    #[Query]\n    public function ping(string \$tail): string { return \"pong:{\$tail}\"; }\n}\n</script>\nexport default function Files() { return null; }\n";
+        $files = "<script lang=\"php\">\nuse Crab\\Psx\\Query;\nfinal readonly class Listing { public function __construct(public string \$tail) {} }\n    function load(string \$tail): Listing { return new Listing(\$tail); }\n    #[Query]\n    function ping(string \$tail): string { return \"pong:{\$tail}\"; }\n</script>\nexport default function Files() { return null; }\n";
         foreach ([
             'every segment' => '{tail:.+}',
             'every segment, lazily' => '{tail:.*?}',
@@ -462,7 +466,7 @@ final class CompilerTest extends TestCase
             ];
         }
         $twin =
-            static fn(string $name): string => "<script lang=\"php\">\nfinal readonly class Data { public function __construct(public int \$n = 1) {} }\nfinal readonly class Server\n{\n    public function load(): Data { return new Data(); }\n}\n</script>\nexport default function {$name}() { return null; }\n";
+            static fn(string $name): string => "<script lang=\"php\">\nfinal readonly class Data { public function __construct(public int \$n = 1) {} }\n    function load(): Data { return new Data(); }\n</script>\nexport default function {$name}() { return null; }\n";
         foreach ([
             'punctuation' => ['foo-bar', 'foo_bar'],
             'a leading digit' => ['1up', '_1up'],
@@ -483,7 +487,7 @@ final class CompilerTest extends TestCase
         $taking = static fn(
             string $parameter,
             string $more = '',
-        ): string => "use Crab\\Psx\\Action;\nuse Crab\\Psx\\Query;\nuse Crab\\Routing\\FromQuery;\nuse Crab\\Validation\\ListOf;\n{$more}final readonly class Server\n{\n    #[Action]\n    public function choose({$parameter}): int { return 1; }\n}";
+        ): string => "use Crab\\Psx\\Action;\nuse Crab\\Psx\\Query;\nuse Crab\\Routing\\FromQuery;\nuse Crab\\Validation\\ListOf;\n{$more}    #[Action]\n    function choose({$parameter}): int { return 1; }";
         foreach ([
             'a field of its input' => [
                 'Choice $choice',
@@ -508,21 +512,21 @@ final class CompilerTest extends TestCase
         yield 'an enum past what a browser holds in a query string' => [
             $page(
                 str_replace('BIG', '9007199254740993', $big)
-                    . "use Crab\\Psx\\Query;\nuse Crab\\Routing\\FromQuery;\nfinal readonly class Server\n{\n    #[Query]\n    public function find(#[FromQuery] Big \$size): int { return 1; }\n}",
+                    . "use Crab\\Psx\\Query;\nuse Crab\\Routing\\FromQuery;\n    #[Query]\n    function find(#[FromQuery] Big \$size): int { return 1; }",
             ),
             'find() takes an enum with the value 9007199254740993',
         ];
         yield 'an enum past what a browser holds in what a method gives' => [
             $page(
                 str_replace('BIG', '9007199254740993', $big)
-                    . "use Crab\\Psx\\Query;\nfinal readonly class Server\n{\n    #[Query]\n    public function size(): Big { return Big::Small; }\n}",
+                    . "use Crab\\Psx\\Query;\n    #[Query]\n    function size(): Big { return Big::Small; }",
             ),
             'whose case Big is 9007199254740993',
         ];
         yield 'an enum past what a browser holds in a page\'s data' => [
             $page(
                 str_replace('BIG', '9007199254740993', $big)
-                    . "final readonly class Data { public function __construct(public ?Big \$size = null) {} }\nfinal readonly class Server\n{\n    public function load(): Data { return new Data(); }\n}",
+                    . "final readonly class Data { public function __construct(public ?Big \$size = null) {} }\n    function load(): Data { return new Data(); }",
             ),
             'whose case Big is 9007199254740993',
         ];
@@ -578,7 +582,7 @@ final class CompilerTest extends TestCase
                     "    \$pages->layout('app', 'resources/layouts/App.psx');\n    \$pages->page('/', 'resources/pages/Home.psx')->name('home')->layout('app');",
                 ),
                 ...$page(
-                    "use Crab\\Routing\\FromQuery;\nfinal readonly class D { public function __construct(public int \$t) {} }\nfinal readonly class Server\n{\n    public function load(#[FromQuery] int \$theme = 1): D { return new D(\$theme); }\n}",
+                    "use Crab\\Routing\\FromQuery;\nfinal readonly class D { public function __construct(public int \$t) {} }\n    function load(#[FromQuery] int \$theme = 1): D { return new D(\$theme); }",
                 ),
             ],
             'reads the query field "theme"',
@@ -587,7 +591,7 @@ final class CompilerTest extends TestCase
 
     public function testAParameterOfOneSegmentKeepsItsQueriesHoweverItIsConstrained(): void
     {
-        $page = "<script lang=\"php\">\nuse Crab\\Psx\\Query;\nfinal readonly class Listing { public function __construct(public string \$tail) {} }\nfinal readonly class Server\n{\n    public function load(string \$tail): Listing { return new Listing(\$tail); }\n    #[Query]\n    public function ping(string \$tail): string { return \"pong:{\$tail}\"; }\n}\n</script>\nexport default function Files() { return null; }\n";
+        $page = "<script lang=\"php\">\nuse Crab\\Psx\\Query;\nfinal readonly class Listing { public function __construct(public string \$tail) {} }\n    function load(string \$tail): Listing { return new Listing(\$tail); }\n    #[Query]\n    function ping(string \$tail): string { return \"pong:{\$tail}\"; }\n</script>\nexport default function Files() { return null; }\n";
         $fixture = FixtureApp::copy(['resources/pages/Files.psx' => $page]);
         $fixture->write('routes/pages.php', str_replace(
             "\$pages->service('/people',",
@@ -637,7 +641,7 @@ final class CompilerTest extends TestCase
     public static function named(): iterable
     {
         $action =
-            static fn(string $parameter): string => "    #[Action]\n    public function choose({$parameter}): int { return 1; }";
+            static fn(string $parameter): string => "    #[Action]\n    function choose({$parameter}): int { return 1; }";
         yield 'a field of an action\'s input' => [
             "final readonly class Choice { public function __construct(public Big \$enum) {} }\n",
             $action('Choice $choice'),
@@ -665,12 +669,12 @@ final class CompilerTest extends TestCase
         ];
         yield 'a query field of a query' => [
             '',
-            "    #[Query]\n    public function find(#[FromQuery] Big \$enum): int { return 1; }",
+            "    #[Query]\n    function find(#[FromQuery] Big \$enum): int { return 1; }",
             'find()',
         ];
         yield 'a query field of a query that may be null' => [
             '',
-            "    #[Query]\n    public function find(#[FromQuery] ?Big \$enum = null): int { return 1; }",
+            "    #[Query]\n    function find(#[FromQuery] ?Big \$enum = null): int { return 1; }",
             'find()',
         ];
         yield 'a query field of a loader' => ['', 'LOAD: #[FromQuery] ?Big $enum = null', 'load()'];
@@ -684,9 +688,9 @@ final class CompilerTest extends TestCase
             . "final readonly class Inner { public function __construct(public Size \$enum, #[ListOf(Kind::class)] public array \$kinds = []) {} }\n"
             . "final readonly class Choice { public function __construct(public Size \$enum, public ?Inner \$inner = null) {} }\n"
             . "final readonly class Named { public function __construct(public Kind \$enum) {} }\n",
-            "    #[Action]\n    public function choose(Choice \$enum): int { return \$enum->enum->value; }\n"
-            . "    #[Action]\n    public function name(Named \$named): string { return \$named->enum->value; }\n"
-            . "    #[Query]\n    public function find(#[FromQuery] Size \$enum, #[FromQuery] ?Kind \$kind = null): int { return \$enum->value; }",
+            "    #[Action]\n    function choose(Choice \$enum): int { return \$enum->enum->value; }\n"
+            . "    #[Action]\n    function name(Named \$named): string { return \$named->enum->value; }\n"
+            . "    #[Query]\n    function find(#[FromQuery] Size \$enum, #[FromQuery] ?Kind \$kind = null): int { return \$enum->value; }",
         )]);
         $psx = $fixture->serve();
 
@@ -716,7 +720,7 @@ final class CompilerTest extends TestCase
             "<script lang=\"php\">\nuse Crab\\Psx\\Action;\nuse Crab\\Psx\\Query;\nuse Crab\\Routing\\FromQuery;\nuse Crab\\Validation\\ListOf;\n"
             . $classes
             . "final readonly class Data { public function __construct(public int \$n = 1) {} }\n"
-            . "final readonly class Server\n{\n    public function load({$takes}): Data { return new Data(); }\n{$methods}\n}\n</script>\nexport default function Home() { return null; }\n"
+            . "    function load({$takes}): Data { return new Data(); }\n{$methods}\n</script>\nexport default function Home() { return null; }\n"
         );
     }
 
@@ -874,15 +878,15 @@ Route::get('/plain', static fn(): array => ['plain' => true]);
     {
         $source = Source::parse(
             'resources/components/Shared.psx',
-            "<script lang=\"php\">\nfinal readonly class Server {}\n</script>",
+            "<script lang=\"php\">\nfunction load(): int { return 1; }\n</script>",
             'resources',
         );
 
         self::assertTrue($source->server);
         self::assertSame("\n\n", $source->tsx);
         self::assertSame(
-            "<script lang=\"php\">\nfinal readonly class Server {}\n</script>",
-            Source::region("<script lang=\"php\">\nfinal readonly class Server {}\n</script>"),
+            "<script lang=\"php\">\nfunction load(): int { return 1; }\n</script>",
+            Source::region("<script lang=\"php\">\nfunction load(): int { return 1; }\n</script>"),
         );
     }
 }

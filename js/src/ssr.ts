@@ -88,10 +88,40 @@ export function serve(manifest: Manifest, argv: readonly string[] = process.argv
         maxQueue: number('max-queue'),
         timeoutSeconds: number('timeout-seconds'),
     });
+    if (argv.includes('--exit-with-parent')) {
+        // Started by a server process that keeps it: when that process is gone, killed outright with
+        // no chance to stop it, so is this renderer. Its workers' connections close with it, and they
+        // turn to the renderer the server starts in its place.
+        watchParent(() => process.exit(0));
+    }
     for (const signal of ['SIGTERM', 'SIGINT'] as const) {
         process.once(signal, () => {
             // Told again, it stops at once: the signal is listened for only the once.
             retire(server, () => process.exit(0));
         });
     }
+}
+
+/**
+ * Calls `gone` once the process that started this one has ended: the system then gives this one
+ * another parent. Checked every second; it keeps nothing running by itself. A process that already
+ * has no parent of its own (1) is not watched.
+ */
+export function watchParent(
+    gone: () => void,
+    parent: number = process.ppid,
+    current: () => number = () => process.ppid,
+    everyMs = 1000,
+): () => void {
+    if (parent <= 1) {
+        return () => undefined;
+    }
+    const timer = setInterval(() => {
+        if (current() !== parent) {
+            clearInterval(timer);
+            gone();
+        }
+    }, everyMs);
+    timer.unref();
+    return () => clearInterval(timer);
 }

@@ -1,12 +1,12 @@
 // @vitest-environment node
-import { mkdtempSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { connect, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { listen, retire } from '../src/socket.js';
-import { renderPage } from '../src/ssr.js';
+import { renderPage, watchParent } from '../src/ssr.js';
 import { pageEnvelope } from '../src/testing.js';
 import { manifest, posts } from './fixture.js';
 
@@ -116,8 +116,12 @@ describe('rendering a page on the server', () => {
 describe('the renderer’s socket', () => {
     let server: Server | null = null;
     const logged: string[] = [];
+    // Each test's own folder for its socket, removed after it.
+    const folders: string[] = [];
     const start = (options: Partial<Parameters<typeof listen>[0]> = {}): Promise<string> => {
-        const socket = join(mkdtempSync(join(tmpdir(), 'psx-ssr-')), 'r.sock');
+        const folder = mkdtempSync(join(tmpdir(), 'psx-ssr-'));
+        folders.push(folder);
+        const socket = join(folder, 'r.sock');
         server = listen({
             socket,
             build: 'b1',
@@ -128,10 +132,16 @@ describe('the renderer’s socket', () => {
         return new Promise(resolve => server!.once('listening', () => resolve(socket)));
     };
 
-    afterEach(() => {
-        server?.close();
+    afterEach(async () => {
+        const closing = server;
         server = null;
         logged.length = 0;
+        if (closing !== null) {
+            await new Promise<void>(resolve => closing.close(() => resolve()));
+        }
+        for (const folder of folders.splice(0)) {
+            rmSync(folder, { recursive: true, force: true });
+        }
     });
 
     it('is private to its account, answers a ping and renders a page', async () => {
@@ -391,5 +401,66 @@ describe('the renderer’s socket', () => {
             expect(state.peak).toBe(1);
             await until(() => last().inflight === 0 && last().queued === 0);
         });
+    });
+});
+
+describe('a renderer whose server process is gone', () => {
+    it('is told once its parent changes, and not before', () => {
+        vi.useFakeTimers();
+        try {
+            let ppid = 4242;
+            const gone = vi.fn();
+            watchParent(gone, 4242, () => ppid, 1000);
+            vi.advanceTimersByTime(5000);
+            expect(gone).not.toHaveBeenCalled();
+            // Killed outright: the system gives the renderer another parent.
+            ppid = 1;
+            vi.advanceTimersByTime(1000);
+            expect(gone).toHaveBeenCalledTimes(1);
+            vi.advanceTimersByTime(5000);
+            expect(gone).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('watches nothing when it has no parent of its own', () => {
+        vi.useFakeTimers();
+        try {
+            const gone = vi.fn();
+            watchParent(gone, 1, () => 999, 1000);
+            vi.advanceTimersByTime(5000);
+            expect(gone).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('leaves the socket of the renderer started in its place', async () => {
+        const folder = mkdtempSync(join(tmpdir(), 'psx-ssr-'));
+        const socket = join(folder, 'r.sock');
+        const options = {
+            socket,
+            build: 'b1',
+            render: () => Promise.resolve('<p>x</p>'),
+            log: () => undefined,
+        };
+        try {
+            const old = listen(options);
+            await new Promise(resolve => old.once('listening', resolve));
+            // The server starts another renderer at the same address; it takes the path over.
+            const fresh = listen(options);
+            await new Promise(resolve => fresh.once('listening', resolve));
+            const taken = lstatSync(socket).ino;
+            await new Promise<void>(resolve => retire(old, resolve));
+            expect(existsSync(socket)).toBe(true);
+            expect(lstatSync(socket).ino).toBe(taken);
+            expect(await ask(socket, { protocol: 1, build: 'b1', ping: true })).toEqual({ ok: true });
+            // The one still at its own path removes its file when it stops, as before.
+            await new Promise<void>(resolve => retire(fresh, resolve));
+            expect(existsSync(socket)).toBe(false);
+        } finally {
+            rmSync(folder, { recursive: true, force: true });
+        }
     });
 });

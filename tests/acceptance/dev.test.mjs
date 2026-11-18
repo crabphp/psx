@@ -87,12 +87,9 @@ final readonly class Greeting
     public function __construct(public string $text) {}
 }
 
-final readonly class Server
+function load(): Greeting
 {
-    public function load(): Greeting
-    {
-        return new Greeting('${text}');
-    }
+    return new Greeting('${text}');
 }
 </script>
 import type { Props } from '@psx/types/pages/Added';
@@ -157,7 +154,7 @@ test('an edit that cannot be built leaves the last that could, PHP and scripts a
         ],
         [
             'a loader that does not say what it returns',
-            () => edit('resources/pages/Added.psx', 'public function load(): Greeting', 'public function load()'),
+            () => edit('resources/pages/Added.psx', 'function load(): Greeting', 'function load()'),
             /Added\.psx/,
         ],
         [

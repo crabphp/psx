@@ -8,6 +8,7 @@ use Crab\Psx\ActionResult;
 use Crab\Psx\Failure;
 use Crab\Psx\Head;
 use Crab\Psx\PageData;
+use Crab\Psx\Inject;
 use Psr\Http\Message\ServerRequestInterface;
 
 final readonly class Viewer
@@ -23,52 +24,52 @@ final readonly class Account
     public function __construct(public string $account) {}
 }
 
-final readonly class Server
+/** @return PageData<Viewer> */
+function load(ServerRequestInterface $request, #[Inject] Gate $gate): PageData
 {
-    public function __construct(
-        private Session $session,
-        private Store $store,
-        private Gate $gate,
-    ) {}
+    $account = (string) $request->getAttribute(Signed::ACCOUNT);
+    $gate->pass('shell.load', $account);
+    return PageData::of(new Viewer($account, "secret of {$account}"))->head(Head::title("Signed in as {$account}"));
+}
 
-    /** @return PageData<Viewer> */
-    public function load(ServerRequestInterface $request): PageData
-    {
-        $account = (string) $request->getAttribute(Signed::ACCOUNT);
-        $this->gate->pass('shell.load', $account);
-        return PageData::of(new Viewer($account, "secret of {$account}"))->head(Head::title("Signed in as {$account}"));
+/** @return ActionResult<string> */
+#[Action(auth: true)]
+function signOut(
+    ServerRequestInterface $request,
+    #[Inject] Gate $gate,
+    #[Inject] Session $session,
+    #[Inject] Store $store,
+): ActionResult {
+    $account = (string) $request->getAttribute(Signed::ACCOUNT);
+    $gate->pass('signout', $account);
+    $cookie = $session->change($request, null);
+    if ($cookie === null) {
+        return ActionResult::fail(Failure::conflict('Who is signed in changed meanwhile.'));
     }
+    $store->record('signOut', $account);
+    return ActionResult::ok('out')->authChanged()->cookie($cookie);
+}
 
-    /** @return ActionResult<string> */
-    #[Action(auth: true)]
-    public function signOut(ServerRequestInterface $request): ActionResult
-    {
-        $account = (string) $request->getAttribute(Signed::ACCOUNT);
-        $this->gate->pass('signout', $account);
-        $cookie = $this->session->change($request, null);
-        if ($cookie === null) {
-            return ActionResult::fail(Failure::conflict('Who is signed in changed meanwhile.'));
-        }
-        $this->store->record('signOut', $account);
-        return ActionResult::ok('out')->authChanged()->cookie($cookie);
+/** @return ActionResult<string> */
+#[Action(auth: true)]
+function switchTo(
+    ServerRequestInterface $request,
+    Account $input,
+    #[Inject] Gate $gate,
+    #[Inject] Session $session,
+    #[Inject] Store $store,
+): ActionResult {
+    $account = (string) $request->getAttribute(Signed::ACCOUNT);
+    if (preg_match('/^[a-z]{2,12}$/', $input->account) !== 1) {
+        return ActionResult::fail(Failure::validation(['account' => 'is no account']));
     }
-
-    /** @return ActionResult<string> */
-    #[Action(auth: true)]
-    public function switchTo(ServerRequestInterface $request, Account $input): ActionResult
-    {
-        $account = (string) $request->getAttribute(Signed::ACCOUNT);
-        if (preg_match('/^[a-z]{2,12}$/', $input->account) !== 1) {
-            return ActionResult::fail(Failure::validation(['account' => 'is no account']));
-        }
-        $this->gate->pass('switch', $account);
-        $cookie = $this->session->change($request, $input->account);
-        if ($cookie === null) {
-            return ActionResult::fail(Failure::conflict('Who is signed in changed meanwhile.'));
-        }
-        $this->store->record('switchTo', $account, $input->account);
-        return ActionResult::ok($input->account)->authChanged()->cookie($cookie);
+    $gate->pass('switch', $account);
+    $cookie = $session->change($request, $input->account);
+    if ($cookie === null) {
+        return ActionResult::fail(Failure::conflict('Who is signed in changed meanwhile.'));
     }
+    $store->record('switchTo', $account, $input->account);
+    return ActionResult::ok($input->account)->authChanged()->cookie($cookie);
 }
 </script>
 import { useState } from 'react';

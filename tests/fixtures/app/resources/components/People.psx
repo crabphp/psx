@@ -16,13 +16,10 @@ final readonly class Found
     ) {}
 }
 
-final readonly class Server
+#[Query]
+function searchPeople(#[FromQuery] string $query): Found
 {
-    #[Query]
-    public function searchPeople(#[FromQuery] string $query): Found
-    {
-        return new Found([new Person("{$query} Lovelace")]);
-    }
+    return new Found([new Person("{$query} Lovelace")]);
 }
 </script>
 export default function People() {

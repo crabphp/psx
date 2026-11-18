@@ -31,6 +31,7 @@ final class ContractTest extends TestCase
         use Crab\Psx\Query;
         use Crab\Psx\Tests\Support\CountingAuth;
         use Crab\Psx\Tests\Support\Posts;
+        use Crab\Psx\Inject;
         use Crab\Routing\FromQuery;
         use Crab\Validation\ListOf;
 
@@ -64,100 +65,96 @@ final class ContractTest extends TestCase
             public function __construct(public int $status) {}
         }
 
-        final readonly class Server
+        function load(int $id, #[Inject] Posts $posts, #[FromQuery] string $q = '', #[FromQuery] int $page = 1): Loaded|Failure
         {
-            public function __construct(private Posts $posts) {}
-
-            public function load(int $id, #[FromQuery] string $q = '', #[FromQuery] int $page = 1): Loaded|Failure
-            {
-                $this->posts->ran[] = "load:{$q}";
-                if ($id === 404) {
-                    return Failure::notFound('No such review.');
-                }
-                return new Loaded($q);
+            $posts->ran[] = "load:{$q}";
+            if ($id === 404) {
+                return Failure::notFound('No such review.');
             }
-
-            #[Action]
-            public function thrown(int $id, Fail $input): string
-            {
-                $this->posts->ran[] = 'write';
-                throw new HttpException($input->status, 'Thrown after the write.');
-            }
-
-            /** @return ActionResult<string> */
-            #[Action]
-            public function returned(int $id): ActionResult
-            {
-                $this->posts->ran[] = 'checked';
-                return ActionResult::fail(Failure::conflict('Nothing was kept.'));
-            }
-
-            #[Action]
-            public function unsendable(int $id): int
-            {
-                $this->posts->ran[] = 'write';
-                return PHP_INT_MAX;
-            }
-
-            #[Action]
-            public function replaced(int $id): string
-            {
-                $this->posts->ran[] = 'write';
-                return 'kept';
-            }
-
-            #[Action]
-            public function overthrown(int $id): string
-            {
-                $this->posts->ran[] = 'write';
-                return 'kept';
-            }
-
-            #[Action]
-            public function barred(int $id): string
-            {
-                $this->posts->ran[] = 'write';
-                return 'kept';
-            }
-
-            #[Action]
-            public function opened(int $id): string
-            {
-                $this->posts->ran[] = 'opened';
-                return 'kept';
-            }
-
-            #[Action]
-            public function proxied(int $id): string
-            {
-                $this->posts->ran[] = 'proxied';
-                return 'kept';
-            }
-
-            /** @return ActionResult<Shape> */
-            #[Action]
-            public function shaped(int $id, Shape $input): ActionResult
-            {
-                $this->posts->ran[] = 'shaped';
-                return ActionResult::ok($input);
-            }
-
-            #[Query]
-            public function counted(int $id, #[FromQuery] int $from = 0): int
-            {
-                $this->posts->ran[] = 'counted';
-                return $from;
-            }
-
-            /** @return ActionResult<string> */
-            #[Action]
-            public function unmarked(int $id): ActionResult
-            {
-                $this->posts->ran[] = 'write';
-                return ActionResult::ok('in')->authChanged()->cookie(new \Crab\Http\Cookie('session', 'new'));
-            }
-            //MARKED
+            return new Loaded($q);
         }
+
+        #[Action]
+        function thrown(int $id, Fail $input, #[Inject] Posts $posts): string
+        {
+            $posts->ran[] = 'write';
+            throw new HttpException($input->status, 'Thrown after the write.');
+        }
+
+        /** @return ActionResult<string> */
+        #[Action]
+        function returned(int $id, #[Inject] Posts $posts): ActionResult
+        {
+            $posts->ran[] = 'checked';
+            return ActionResult::fail(Failure::conflict('Nothing was kept.'));
+        }
+
+        #[Action]
+        function unsendable(int $id, #[Inject] Posts $posts): int
+        {
+            $posts->ran[] = 'write';
+            return PHP_INT_MAX;
+        }
+
+        #[Action]
+        function replaced(int $id, #[Inject] Posts $posts): string
+        {
+            $posts->ran[] = 'write';
+            return 'kept';
+        }
+
+        #[Action]
+        function overthrown(int $id, #[Inject] Posts $posts): string
+        {
+            $posts->ran[] = 'write';
+            return 'kept';
+        }
+
+        #[Action]
+        function barred(int $id, #[Inject] Posts $posts): string
+        {
+            $posts->ran[] = 'write';
+            return 'kept';
+        }
+
+        #[Action]
+        function opened(int $id, #[Inject] Posts $posts): string
+        {
+            $posts->ran[] = 'opened';
+            return 'kept';
+        }
+
+        #[Action]
+        function proxied(int $id, #[Inject] Posts $posts): string
+        {
+            $posts->ran[] = 'proxied';
+            return 'kept';
+        }
+
+        /** @return ActionResult<Shape> */
+        #[Action]
+        function shaped(int $id, Shape $input, #[Inject] Posts $posts): ActionResult
+        {
+            $posts->ran[] = 'shaped';
+            return ActionResult::ok($input);
+        }
+
+        #[Query]
+        function counted(int $id, #[Inject] Posts $posts, #[FromQuery] int $from = 0): int
+        {
+            $posts->ran[] = 'counted';
+            return $from;
+        }
+
+        /** @return ActionResult<string> */
+        #[Action]
+        function unmarked(int $id, #[Inject] Posts $posts): ActionResult
+        {
+            $posts->ran[] = 'write';
+            return ActionResult::ok('in')->authChanged()->cookie(new \Crab\Http\Cookie('session', 'new'));
+        }
+        //MARKED
+
         </script>
         export default function Review() {
             return null;
@@ -166,33 +163,33 @@ final class ContractTest extends TestCase
 
     private const string MARKED = <<<'PHP'
 
-            /** @return ActionResult<string> */
-            #[Action(auth: true)]
-            public function signIn(int $id): ActionResult
-            {
-                $this->posts->ran[] = 'signIn';
+        /** @return ActionResult<string> */
+        #[Action(auth: true)]
+        function signIn(int $id, #[Inject] Posts $posts): ActionResult
+        {
+            $posts->ran[] = 'signIn';
+            CountingAuth::$revision = '4';
+            return ActionResult::ok('in')->authChanged();
+        }
+
+        /** @return ActionResult<string> */
+        #[Action(auth: true)]
+        function refuseIn(int $id, Shape $input, #[Inject] Posts $posts): ActionResult
+        {
+            $posts->ran[] = 'refuseIn';
+            if ($input->reference === 'moved') {
                 CountingAuth::$revision = '4';
-                return ActionResult::ok('in')->authChanged();
             }
+            return ActionResult::fail(Failure::validation(['reference' => 'is not known']));
+        }
 
-            /** @return ActionResult<string> */
-            #[Action(auth: true)]
-            public function refuseIn(int $id, Shape $input): ActionResult
-            {
-                $this->posts->ran[] = 'refuseIn';
-                if ($input->reference === 'moved') {
-                    CountingAuth::$revision = '4';
-                }
-                return ActionResult::fail(Failure::validation(['reference' => 'is not known']));
-            }
-
-            /** @return ActionResult<string> */
-            #[Action(auth: true)]
-            public function guardedIn(int $id): ActionResult
-            {
-                $this->posts->ran[] = 'guardedIn';
-                return ActionResult::ok('in')->authChanged();
-            }
+        /** @return ActionResult<string> */
+        #[Action(auth: true)]
+        function guardedIn(int $id, #[Inject] Posts $posts): ActionResult
+        {
+            $posts->ran[] = 'guardedIn';
+            return ActionResult::ok('in')->authChanged();
+        }
         PHP;
 
     private static FixtureApp $fixture;

@@ -76,7 +76,8 @@ final readonly class Source
         if ($region === null) {
             return new self($file, $id, $namespace, null, "\n" . $code, [], [], false);
         }
-        [$uses, $declared, $blank] = self::scan($region, $file);
+        [$uses, $declared, $blank, $functions] = self::scan($region, $file);
+        $server = self::server($region, $functions, $uses, $namespace, $file);
         $tsx = substr($code, $end);
         foreach (['<?php', '<?=', self::OPEN] as $needle) {
             $again = strpos($tsx, $needle);
@@ -97,12 +98,15 @@ final readonly class Source
             $file,
             $id,
             $namespace,
-            "<?php declare(strict_types=1); namespace {$namespace};" . substr($open, strlen('<?php')) . $php,
+            "<?php declare(strict_types=1); namespace {$namespace};"
+            . substr($open, strlen('<?php'))
+            . $php
+            . ($server ?? ''),
             // Line 1 is left for the import of the module's bindings.
             str_repeat("\n", substr_count($code, "\n", 0, $end)) . $tsx,
             $uses,
-            $declared,
-            in_array('Server', $declared, true),
+            $server === null ? $declared : [...$declared, 'Server'],
+            $server !== null,
         );
     }
 
@@ -182,23 +186,302 @@ final readonly class Source
     }
 
     /**
+     * The Server class the router calls, made from the functions the page
+     * calls: load(), and each marked #[Query] or #[Action]. Each becomes a
+     * method of the same signature without its #[Inject] parameters, which
+     * hands its arguments on to the function; what is injected is taken by
+     * the constructor and handed on too. Null when the file has none.
+     *
+     * The class is written after the block, so every line of the block is
+     * the line it was in the file.
+     *
+     * @param list<\PhpToken> $tokens
+     * @param list<array{doc: int|null, attributes: list<array{int, int}>, from: int, to: int}> $functions
+     * @param array<string, string> $uses
+     */
+    private static function server(
+        array $tokens,
+        array $functions,
+        array $uses,
+        string $namespace,
+        string $file,
+    ): ?string {
+        $text = static function (int $from, int $to) use ($tokens): string {
+            $out = '';
+            for ($at = $from; $at <= $to; ++$at) {
+                $out .= $tokens[$at]->text;
+            }
+            return trim($out);
+        };
+        $services = [];
+        $methods = [];
+        foreach ($functions as $function) {
+            $at = $function['from'] + 1;
+            while (in_array($tokens[$at]->id, [T_WHITESPACE, T_COMMENT], true) || $tokens[$at]->text === '&') {
+                ++$at;
+            }
+            $name = $tokens[$at]->text;
+            $line = $tokens[$function['from']]->line;
+            $open = $at + 1;
+            while ($tokens[$open]->text !== '(') {
+                ++$open;
+            }
+            $close = self::matching($tokens, $open, '(', ')', $file);
+            $body = $close + 1;
+            while ($tokens[$body]->text !== '{') {
+                ++$body;
+            }
+            $returns = ltrim($text($close + 1, $body - 1), ": \t\n");
+            $marked = [];
+            foreach ($function['attributes'] as [$from, $to]) {
+                foreach (self::attributeNames($tokens, $from, $to, $uses, $namespace) as $class) {
+                    $marked[$class] = true;
+                }
+            }
+            $exposed =
+                $name === 'load' || isset($marked[\Crab\Psx\Query::class]) || isset($marked[\Crab\Psx\Action::class]);
+            for ($look = $body; $look < $function['to']; ++$look) {
+                if ($tokens[$look]->id === T_VARIABLE && $tokens[$look]->text === '$this') {
+                    throw new PsxException(
+                        "{$name}() uses \$this. A .psx file has no class of its own: take a service as a parameter marked #[Inject], and write \$posts where it said \$this->posts.",
+                        $file,
+                        $tokens[$look]->line,
+                    );
+                }
+            }
+            $kept = [];
+            $handed = [];
+            foreach (self::parameters($tokens, $open + 1, $close - 1) as $parameter) {
+                $variable = null;
+                $inject = false;
+                $variadic = false;
+                $byReference = false;
+                $hasDefault = false;
+                $type = '';
+                $typeFrom = $parameter[0];
+                for ($p = $parameter[0]; $p <= $parameter[1]; ++$p) {
+                    $token = $tokens[$p];
+                    if ($token->id === T_ATTRIBUTE) {
+                        $end = self::matching($tokens, $p, '[', ']', $file);
+                        if (in_array(
+                            \Crab\Psx\Inject::class,
+                            self::attributeNames($tokens, $p, $end, $uses, $namespace),
+                            true,
+                        )) {
+                            $inject = true;
+                        }
+                        $p = $end;
+                        $typeFrom = $end + 1;
+                    } elseif ($token->id === T_ELLIPSIS) {
+                        $variadic = true;
+                    } elseif ($token->text === '&') {
+                        $byReference = true;
+                    } elseif ($token->id === T_VARIABLE && $variable === null) {
+                        $variable = substr($token->text, 1);
+                        $type = '';
+                        for ($t = $typeFrom; $t < $p; ++$t) {
+                            if (
+                                !in_array($tokens[$t]->id, [T_ELLIPSIS, T_COMMENT], true)
+                                && $tokens[$t]->text !== '&'
+                            ) {
+                                $type .= $tokens[$t]->text;
+                            }
+                        }
+                        $type = trim((string) preg_replace('/\s+/', ' ', $type));
+                    } elseif ($token->text === '=' && $variable !== null) {
+                        $hasDefault = true;
+                    }
+                }
+                if ($variable === null) {
+                    continue;
+                }
+                if (!$inject) {
+                    $kept[] = $text($parameter[0], $parameter[1]);
+                    $handed[] = ($variadic ? '...' : '') . '$' . $variable;
+                    continue;
+                }
+                $where = $tokens[$parameter[0]]->line;
+                if (!$exposed) {
+                    throw new PsxException(
+                        "{$name}() marks \${$variable} #[Inject], and only load() and the functions marked #[Query] or #[Action] are given services. Hand it on from one of them.",
+                        $file,
+                        $where,
+                    );
+                }
+                if ($variadic || $byReference || $hasDefault || $type === '') {
+                    throw new PsxException(
+                        "#[Inject] \${$variable} of {$name}() is a service: give it a class type, and no default, reference or \"...\".",
+                        $file,
+                        $where,
+                    );
+                }
+                if (isset($services[$variable]) && $services[$variable][0] !== $type) {
+                    throw new PsxException(
+                        "#[Inject] \${$variable} is {$services[$variable][0]} in one function and {$type} in {$name}(); one name is one service in a file.",
+                        $file,
+                        $where,
+                    );
+                }
+                $services[$variable] ??= [$type, $line];
+                $handed[] = '$this->' . $variable;
+            }
+            if (!$exposed) {
+                continue;
+            }
+            $attributes = '';
+            foreach ($function['attributes'] as [$from, $to]) {
+                $attributes .= $text($from, $to) . "\n";
+            }
+            $call = '\\' . $namespace . '\\' . $name . '(' . implode(', ', $handed) . ')';
+            $void = in_array(strtolower($returns), ['void', 'never'], true);
+            $methods[] =
+                ($function['doc'] === null ? '' : $tokens[$function['doc']]->text . "\n")
+                . $attributes
+                . "public function {$name}("
+                . implode(', ', $kept)
+                . ')'
+                . ($returns === '' ? '' : ": {$returns}")
+                . "\n{\n"
+                . ($void ? "    {$call};\n" : "    return {$call};\n")
+                . "}\n";
+        }
+        if ($methods === []) {
+            return null;
+        }
+        $constructor = [];
+        foreach ($services as $variable => [$type]) {
+            $constructor[] = "private {$type} \${$variable}";
+        }
+        return (
+            "\n\n// Made by the compiler from the functions above: the methods the router calls.\nfinal readonly class Server\n{\n"
+            . 'public function __construct('
+            . implode(', ', $constructor)
+            . ") {}\n"
+            . implode('', $methods)
+            . "}\n"
+        );
+    }
+
+    /**
+     * The parameters of a list, each as the positions of its first and last token.
+     *
+     * @param list<\PhpToken> $tokens
+     * @return list<array{int, int}>
+     */
+    private static function parameters(array $tokens, int $from, int $to): array
+    {
+        $parameters = [];
+        $depth = 0;
+        $start = $from;
+        for ($at = $from; $at <= ($to + 1); ++$at) {
+            $piece = $at <= $to ? $tokens[$at]->text : ',';
+            if (
+                $at <= $to
+                && ($piece === '(' || $piece === '[' || $piece === '{' || $tokens[$at]->id === T_ATTRIBUTE)
+            ) {
+                ++$depth;
+            } elseif ($at <= $to && ($piece === ')' || $piece === ']' || $piece === '}')) {
+                --$depth;
+            } elseif ($depth === 0 && $piece === ',') {
+                $first = $start;
+                $last = $at - 1;
+                while (
+                    $first <= $last
+                    && in_array($tokens[$first]->id, [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)
+                ) {
+                    ++$first;
+                }
+                while ($last >= $first && in_array($tokens[$last]->id, [T_WHITESPACE, T_COMMENT], true)) {
+                    --$last;
+                }
+                if ($first <= $last) {
+                    $parameters[] = [$first, $last];
+                }
+                $start = $at + 1;
+            }
+        }
+        return $parameters;
+    }
+
+    /**
+     * The classes an attribute group names, resolved by the file's imports.
+     *
+     * @param list<\PhpToken> $tokens
+     * @param array<string, string> $uses
+     * @return list<string>
+     */
+    private static function attributeNames(array $tokens, int $from, int $to, array $uses, string $namespace): array
+    {
+        $names = [];
+        $depth = 0;
+        $expect = true;
+        for ($at = $from + 1; $at < $to; ++$at) {
+            $token = $tokens[$at];
+            if (in_array($token->id, [T_WHITESPACE, T_COMMENT], true)) {
+                continue;
+            }
+            if (
+                $depth === 0
+                && $expect
+                && in_array($token->id, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED, T_NAME_RELATIVE], true)
+            ) {
+                $name = $token->text;
+                if ($token->id === T_NAME_FULLY_QUALIFIED) {
+                    $names[] = ltrim($name, '\\');
+                } elseif ($token->id === T_NAME_RELATIVE) {
+                    $names[] = $namespace . substr($name, strlen('namespace'));
+                } else {
+                    $first = explode('\\', $name, 2);
+                    $names[] = isset($uses[$first[0]])
+                        ? $uses[$first[0]] . (isset($first[1]) ? '\\' . $first[1] : '')
+                        : $namespace . '\\' . $name;
+                }
+                $expect = false;
+                continue;
+            }
+            if ($token->text === '(' || $token->text === '[') {
+                ++$depth;
+            } elseif ($token->text === ')' || $token->text === ']') {
+                --$depth;
+            } elseif ($depth === 0 && $token->text === ',') {
+                $expect = true;
+            }
+        }
+        return $names;
+    }
+
+    /**
      * Reads the statements of the PHP block: only imports, constants,
      * functions and types may stand there.
      *
      * @param list<\PhpToken> $tokens
-     * @return array{array<string, string>, list<string>, array<int, true>} The imports, the declared types, and the positions of tokens to blank.
+     * @return array{array<string, string>, list<string>, array<int, true>, list<array{doc: int|null, attributes: list<array{int, int}>, from: int, to: int}>}
+     *     The imports, the declared types, the positions of tokens to blank, and the functions with the docblock and
+     *     attributes written before each.
      */
     private static function scan(array $tokens, string $file): array
     {
         $uses = [];
         $declared = [];
         $blank = [];
+        $functions = [];
+        $doc = null;
+        $attributes = [];
         $count = count($tokens);
         $skip = [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT];
         for ($index = 0; $index < $count; ++$index) {
             $token = $tokens[$index];
+            if ($token->id === T_DOC_COMMENT) {
+                $doc = $index;
+                continue;
+            }
             if (in_array($token->id, $skip, true)) {
                 continue;
+            }
+            if ($token->id !== T_ATTRIBUTE && $token->id !== T_FUNCTION) {
+                // A docblock or an attribute belongs to the declaration right after it.
+                $doc = null;
+                $attributes = [];
             }
             switch ($token->id) {
                 case T_USE:
@@ -226,10 +509,16 @@ final readonly class Source
                     $index = self::until($tokens, $index, ';', $file);
                     break;
                 case T_ATTRIBUTE:
-                    $index = self::matching($tokens, $index, '[', ']', $file);
+                    $end = self::matching($tokens, $index, '[', ']', $file);
+                    $attributes[] = [$index, $end];
+                    $index = $end;
                     break;
                 case T_FUNCTION:
-                    $index = self::block($tokens, $index, $file);
+                    $end = self::block($tokens, $index, $file);
+                    $functions[] = ['doc' => $doc, 'attributes' => $attributes, 'from' => $index, 'to' => $end];
+                    $doc = null;
+                    $attributes = [];
+                    $index = $end;
                     break;
                 case T_FINAL:
                 case T_READONLY:
@@ -254,16 +543,11 @@ final readonly class Source
                     if ($name === null) {
                         throw new PsxException('A type declared here needs a name.', $file, $token->line);
                     }
-                    if (
-                        $name === 'Server'
-                        && (
-                            $tokens[$at]->id !== T_CLASS
-                            || !in_array(T_FINAL, $modifiers, true)
-                            || !in_array(T_READONLY, $modifiers, true)
-                        )
-                    ) {
+                    if ($name === 'Server') {
                         throw new PsxException(
-                            'The Server class is declared "final readonly class Server": it is shared by every request a worker serves, and keeps nothing of one.',
+                            'A .psx file is written as functions, and the compiler makes its Server class from them: write load() and each '
+                            . '#[Query] or #[Action] method as a function, take what the constructor took as a parameter marked #[Inject], '
+                            . 'and write $posts where it said $this->posts.',
                             $file,
                             $token->line,
                         );
@@ -288,7 +572,7 @@ final readonly class Source
                     );
             }
         }
-        return [$uses, $declared, $blank];
+        return [$uses, $declared, $blank, $functions];
     }
 
     /**

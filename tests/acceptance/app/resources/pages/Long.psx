@@ -13,18 +13,15 @@ final readonly class Lines
     ) {}
 }
 
-final readonly class Server
+/** @return PageData<Lines> */
+function load(#[FromQuery] int $page = 1): PageData
 {
-    /** @return PageData<Lines> */
-    public function load(#[FromQuery] int $page = 1): PageData
-    {
-        $lines = [];
-        // Enough of them to scroll through; no style is written on them, which a strict policy would refuse.
-        for ($line = 1; $line <= 200; $line++) {
-            $lines[] = "page {$page}, line {$line}";
-        }
-        return PageData::of(new Lines($page, $lines))->head(Head::title("Long page {$page}"));
+    $lines = [];
+    // Enough of them to scroll through; no style is written on them, which a strict policy would refuse.
+    for ($line = 1; $line <= 200; $line++) {
+        $lines[] = "page {$page}, line {$line}";
     }
+    return PageData::of(new Lines($page, $lines))->head(Head::title("Long page {$page}"));
 }
 </script>
 import { useEffect, useState, useSyncExternalStore } from 'react';

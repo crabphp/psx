@@ -5,6 +5,7 @@ use Crab\Psx\Action;
 use Crab\Psx\ActionResult;
 use Crab\Psx\Query;
 use Crab\Psx\QueryData;
+use Crab\Psx\Inject;
 
 final readonly class Counted
 {
@@ -14,27 +15,19 @@ final readonly class Counted
     ) {}
 }
 
-final readonly class Server
+/** @return QueryData<Counted> */
+#[Query]
+function read(string $box, #[Inject] Gate $gate, #[Inject] Store $store): QueryData
 {
-    public function __construct(
-        private Store $store,
-        private Gate $gate,
-    ) {}
+    $gate->pass('box.read', $box);
+    return QueryData::of(new Counted($box, $store->count($box)))->tags("box:{$box}");
+}
 
-    /** @return QueryData<Counted> */
-    #[Query]
-    public function read(string $box): QueryData
-    {
-        $this->gate->pass('box.read', $box);
-        return QueryData::of(new Counted($box, $this->store->count($box)))->tags("box:{$box}");
-    }
-
-    /** @return ActionResult<int> */
-    #[Action]
-    public function add(string $box): ActionResult
-    {
-        return ActionResult::ok($this->store->add($box))->invalidate("box:{$box}");
-    }
+/** @return ActionResult<int> */
+#[Action]
+function add(string $box, #[Inject] Store $store): ActionResult
+{
+    return ActionResult::ok($store->add($box))->invalidate("box:{$box}");
 }
 </script>
 import { useQuery } from '@crabphp/psx';

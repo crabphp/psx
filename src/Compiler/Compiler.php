@@ -98,7 +98,7 @@ final class Compiler
         foreach ($sources as $file => $source) {
             if ($source->server && !isset($declared[$file])) {
                 throw new PsxException(
-                    'The file has a Server class and is not declared. Importing a component runs none of its PHP: declare it with $pages->service(...), or as a page or a layout.',
+                    'The file has PHP the page calls, load() or a #[Query] or #[Action], and is not declared. Importing a component runs none of its PHP: declare it with $pages->service(...), or as a page or a layout.',
                     $file,
                 );
             }
@@ -232,7 +232,7 @@ final class Compiler
                     ) === 1
                 ) {
                     throw new PsxException(
-                        "The TSX declares \${$name}, which is the name the {$name}() of the Server class is given. Call the other one something else.",
+                        "The TSX declares \${$name}, which is the name the PHP function {$name}() is given. Call the other one something else.",
                         $file,
                         substr_count($tsx, "\n", 0, $found[0][1]) + 1,
                     );

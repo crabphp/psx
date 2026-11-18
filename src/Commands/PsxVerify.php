@@ -56,11 +56,11 @@ final readonly class PsxVerify implements Command
                     continue;
                 }
                 $problem =
-                    "{$file}: the Server class is made with \${$parameter->getName()}"
+                    "{$file}: #[Inject] \${$parameter->getName()}"
                     . (
                         $named === null
-                            ? ', which is not a service. A Server class takes services; what a request carries is a method\'s argument.'
-                            : ", a {$named}, which has no binding and is not a class that can be made."
+                            ? ' is not a service: give it a class type. What a request carries is a parameter without #[Inject].'
+                            : " is a {$named}, which has no binding and is not a class that can be made."
                     );
                 if (!isset($seen[$problem])) {
                     $seen[$problem] = true;
@@ -69,8 +69,8 @@ final readonly class PsxVerify implements Command
             }
         }
         // And what the application names for its container to make, as it is checked before it serves:
-        // by reading, with nothing made. A Server class made with a service that needs what is not
-        // there is found here, however deep.
+        // by reading, with nothing made. A service given with #[Inject] that needs what is not there
+        // is found here, however deep.
         foreach (App::current()->unmade() as $problem) {
             if (!isset($seen[$problem])) {
                 $seen[$problem] = true;

@@ -8,6 +8,7 @@ use Crab\Psx\Head;
 use Crab\Psx\PageData;
 use Crab\Psx\Query;
 use Crab\Psx\QueryData;
+use Crab\Psx\Inject;
 use Psr\Http\Message\ServerRequestInterface;
 
 final readonly class HomeData
@@ -32,52 +33,48 @@ final readonly class NoteInput
     public function __construct(public string $text) {}
 }
 
-final readonly class Server
+/** @return PageData<HomeData> */
+function load(ServerRequestInterface $request, #[Inject] Gate $gate, #[Inject] Store $store): PageData
 {
-    public function __construct(
-        private Store $store,
-        private Gate $gate,
-    ) {}
+    $account = (string) $request->getAttribute(Signed::ACCOUNT);
+    $gate->pass('home.load', $account);
+    $note = $store->note($account);
+    return PageData::of(new HomeData($account, $note['text'], $note['version']))
+        ->head(Head::title("Home of {$account}"))
+        ->tags('note');
+}
 
-    /** @return PageData<HomeData> */
-    public function load(ServerRequestInterface $request): PageData
-    {
-        $account = (string) $request->getAttribute(Signed::ACCOUNT);
-        $this->gate->pass('home.load', $account);
-        $note = $this->store->note($account);
-        return PageData::of(new HomeData($account, $note['text'], $note['version']))
-            ->head(Head::title("Home of {$account}"))
-            ->tags('note');
-    }
+/** @return QueryData<Mine> */
+#[Query]
+function mine(ServerRequestInterface $request, #[Inject] Gate $gate): QueryData
+{
+    $account = (string) $request->getAttribute(Signed::ACCOUNT);
+    $gate->pass('home.query', $account);
+    return QueryData::of(new Mine($account, "private of {$account}"))->tags('note');
+}
 
-    /** @return QueryData<Mine> */
-    #[Query]
-    public function mine(ServerRequestInterface $request): QueryData
-    {
-        $account = (string) $request->getAttribute(Signed::ACCOUNT);
-        $this->gate->pass('home.query', $account);
-        return QueryData::of(new Mine($account, "private of {$account}"))->tags('note');
-    }
+/** @return ActionResult<int> */
+#[Action]
+function save(
+    ServerRequestInterface $request,
+    NoteInput $input,
+    #[Inject] Gate $gate,
+    #[Inject] Store $store,
+): ActionResult {
+    $account = (string) $request->getAttribute(Signed::ACCOUNT);
+    $gate->pass('home.save', $account);
+    return ActionResult::ok($store->write($account, $input->text))->invalidate('note');
+}
 
-    /** @return ActionResult<int> */
-    #[Action]
-    public function save(ServerRequestInterface $request, NoteInput $input): ActionResult
-    {
-        $account = (string) $request->getAttribute(Signed::ACCOUNT);
-        $this->gate->pass('home.save', $account);
-        return ActionResult::ok($this->store->write($account, $input->text))->invalidate('note');
-    }
-
-    /**
-     * Writes, and then fails: what the browser is told of it must not be "nothing happened".
-     */
-    #[Action]
-    public function writeThenFail(ServerRequestInterface $request): int
-    {
-        $account = (string) $request->getAttribute(Signed::ACCOUNT);
-        $this->store->record('writeThenFail', $account);
-        throw new \RuntimeException('After the write.');
-    }
+/**
+ * Writes, and then fails: what the browser is told of it must not be "nothing happened".
+ */
+#[Action]
+function writeThenFail(ServerRequestInterface $request, #[Inject] Store $store): int
+{
+    $account = (string) $request->getAttribute(Signed::ACCOUNT);
+    $store->record('writeThenFail', $account);
+    throw new \RuntimeException('After the write.');
 }
 </script>
 import { useState } from 'react';

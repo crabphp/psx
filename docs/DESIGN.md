@@ -178,13 +178,14 @@ A server-bearing file begins with exactly one `<script lang="php">` block follow
 <script lang="php">
 use App\Services\Posts;
 use Crab\Psx\Action;
+use Crab\Psx\Inject;
 
-final readonly class Server
-{
-    public function __construct(private Posts $posts) {}
+function load(int $id, #[Inject] Posts $posts): PostView { /* ... */ }
 
-    // load(), #[Query] methods, #[Action] methods, private helpers
-}
+#[Action]
+function savePost(int $id, SavePost $input, #[Inject] Posts $posts): PostView { /* ... */ }
+
+// Unmarked functions are the file's own helpers.
 </script>
 
 import { useState } from 'react';
@@ -200,23 +201,24 @@ export default function Page() {
 - PHP after the boundary is not allowed: `<?php`, `<?=` or a second `<script lang="php">` below it is refused, because everything below is given to the browser. PHP inside JSX expressions is not allowed.
 - A file that still uses the earlier `<?php` … `?>` form is refused with a diagnostic saying how to rewrite it.
 - JSX expressions contain JavaScript/TypeScript only. A PHP `$post` local does not become a JavaScript variable.
-- The PHP block contains imports, types, constants, function declarations, and one optional `final readonly class Server`. No top-level request logic, DB queries, `echo`, `exit`, mutable globals, or arbitrary includes.
+- The PHP block contains imports, types, constants and function declarations. A class named `Server` is refused: the compiler makes it. No top-level request logic, DB queries, `echo`, `exit`, mutable globals, or arbitrary includes.
 - `declare(strict_types=1)` is applied to the generated PHP. A source declaration may state the same value; conflicting declarations fail.
-- User-written namespaces are not permitted inside `.psx`. Each module receives a generated PHP namespace based on its normalized project-relative identity. Module-local `Server`, DTOs and helpers cannot collide with another page.
-- External PHP dependencies use ordinary `use` imports and Composer autoloading. Server constructors receive services; request data remains method arguments.
+- User-written namespaces are not permitted inside `.psx`. Each module receives a generated PHP namespace based on its normalized project-relative identity. Module-local functions, DTOs and helpers cannot collide with another page.
+- External PHP dependencies use ordinary `use` imports and Composer autoloading. Services are parameters marked `#[Inject]`; request data remains ordinary parameters.
 - A file without a PHP block is plain TSX and should normally be named `.tsx`.
 
-### Server class contract
+### Function contract
 
-- A page/layout can define one `public function load(...)` method. Its name is the fixed PSX module ABI, not arbitrary function discovery. It is not exported as `$load`.
-- A method marked `#[Query]` is a callable read operation.
-- A method marked `#[Action]` is a callable mutation.
-- Unmarked methods are never client-callable. The compiler recommends `private` for helpers and rejects unmarked public methods other than `load` to catch missing annotations.
-- Methods and all DTO fields have explicit PHP types. Services are constructor arguments, never operation parameters.
+- A page/layout can define one `function load(...)`. Its name is the fixed PSX module ABI, not arbitrary function discovery. It is not exported as `$load`.
+- A function marked `#[Query]` is a callable read operation.
+- A function marked `#[Action]` is a callable mutation.
+- Unmarked functions are never client-callable: they are the file's own helpers.
+- Functions and all DTO fields have explicit PHP types.
+- A service is a parameter marked `#[Inject]` with a class type and no default, by-reference or variadic form. Only `load()`, `#[Query]` and `#[Action]` functions take them; a helper is handed what it needs. One name is one service in a file. `#[Inject]` parameters come before any parameter with a default, as PHP requires of a parameter without one.
+- `$this` is refused: there is no object to write.
 - A reusable component/service module has no automatic `load()`. It receives React props or explicitly calls a registered query.
-- Anonymous closures capturing request state, static mutable fields, and magic dispatch methods are not supported as exported operations.
 
-The class shape is intentional. The earlier free-function sketches hid dependency injection and module lifetime. This keeps normal PHP constructor injection and remains understandable without a global `service()` or `request()` helper.
+Changed on 2026-11-18 from a hand-written `final readonly class Server` with constructor injection. That shape was first chosen because free-function sketches hid dependency injection and module lifetime. `#[Inject]` answers both: dependencies stay in the signature, visible and replaceable in a test, and there is still no global `service()` or `request()` helper. Lifetime is unchanged, because the compiler makes the same class from the functions: one instance per worker, its services taken by its constructor, each exposed function a method of the same signature without its `#[Inject]` parameters that hands its arguments on. The router, binder, type generator and runtime see that class as before; an error names the function's own line.
 
 ### TSX exports
 
@@ -254,31 +256,27 @@ use App\User;
 use Crab\Psx\Action;
 use Crab\Psx\ActionResult;
 use Crab\Psx\Head;
+use Crab\Psx\Inject;
 use Crab\Psx\PageData;
 
-final readonly class Server
+/** @return PageData<EditData> */
+function load(int $id, User $user, #[Inject] Posts $posts): PageData
 {
-    public function __construct(private Posts $posts) {}
+    $post = $posts->editableBy($user, $id);
 
-    /** @return PageData<EditData> */
-    public function load(int $id, User $user): PageData
-    {
-        $post = $this->posts->editableBy($user, $id);
+    return PageData::of(new EditData($post))
+        ->head(Head::title('Edit post'))
+        ->tags('posts', "post:{$id}");
+}
 
-        return PageData::of(new EditData($post))
-            ->head(Head::title('Edit post'))
-            ->tags('posts', "post:{$id}");
-    }
+/** @return ActionResult<SavedPost> */
+#[Action]
+function savePost(int $id, SavePost $input, User $user, #[Inject] Posts $posts): ActionResult
+{
+    $saved = $posts->saveFor($user, $id, $input);
 
-    #[Action]
-    /** @return ActionResult<SavedPost> */
-    public function savePost(int $id, SavePost $input, User $user): ActionResult
-    {
-        $saved = $this->posts->saveFor($user, $id, $input);
-
-        return ActionResult::ok($saved)
-            ->invalidate('posts', "post:{$id}");
-    }
+    return ActionResult::ok($saved)
+        ->invalidate('posts', "post:{$id}");
 }
 </script>
 
@@ -1473,7 +1471,7 @@ This is a full product design, not permission to release an incomplete prototype
 
 ### Proposed decisions made by this document
 
-- Class-based PHP module with constructor DI; real TSX below.
+- PHP functions with `#[Inject]` services, from which the compiler makes the class the router calls; real TSX below. (A hand-written class with constructor injection until 2026-11-18.)
 - Explicit route registration and action/query exposure; `$` is a generated lexical binding convention.
 - Loader, query and action are different operations.
 - Scoped operations require explicit immutable `.at(scope)`; no mutable ambient route lookup.

@@ -10,12 +10,9 @@ final readonly class Members
     ) {}
 }
 
-final readonly class Server
+function load(string $tenant): Members
 {
-    public function load(string $tenant): Members
-    {
-        return new Members($tenant, ["{$tenant}-one", "{$tenant}-two"]);
-    }
+    return new Members($tenant, ["{$tenant}-one", "{$tenant}-two"]);
 }
 </script>
 import type { Props } from '@psx/types/pages/Tenant/Members';

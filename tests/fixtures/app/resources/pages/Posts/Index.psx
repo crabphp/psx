@@ -1,5 +1,6 @@
 <script lang="php">
 use Crab\Psx\Tests\Support\Posts;
+use Crab\Psx\Inject;
 use Crab\Routing\FromQuery;
 use Crab\Validation\ListOf;
 
@@ -17,20 +18,15 @@ final readonly class Listing
     ) {}
 }
 
-final readonly class Server
+function load(#[Inject] Posts $posts, #[FromQuery] string $q = ''): Listing
 {
-    public function __construct(private Posts $posts) {}
-
-    public function load(#[FromQuery] string $q = ''): Listing
-    {
-        $rows = [];
-        foreach ($this->posts->posts as $id => $post) {
-            if ($q === '' || str_contains(strtolower($post['title']), strtolower($q))) {
-                $rows[] = new Row($id, $post['title']);
-            }
+    $rows = [];
+    foreach ($posts->posts as $id => $post) {
+        if ($q === '' || str_contains(strtolower($post['title']), strtolower($q))) {
+            $rows[] = new Row($id, $post['title']);
         }
-        return new Listing($rows, $q);
     }
+    return new Listing($rows, $q);
 }
 </script>
 import type { Props } from '@psx/types/pages/Posts/Index';

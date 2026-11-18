@@ -14,9 +14,9 @@ use Crab\Psx\QueryData;
 use Crab\Psx\Redirect;
 
 /**
- * Reads a compiled module's Server class: its loader and the methods it
- * exposes, and what each returns. The class is reflected, never made and
- * never called.
+ * Reads a compiled module's Server class, which the compiler made from the
+ * file's functions: its loader and the methods it exposes, and what each
+ * returns. The class is reflected, never made and never called.
  *
  * @internal
  */
@@ -86,7 +86,7 @@ final class ModuleReader
                         'load() is the page\'s loader and is not called by the page; drop its #[Query] or #[Action].',
                     );
                 }
-                $module['load'] = [...self::returns($source, $method, 'load'), 'line' => $method->getStartLine()];
+                $module['load'] = [...self::returns($source, $method, 'load'), 'line' => self::line($source, $method)];
                 continue;
             }
             if ($query && $action !== []) {
@@ -113,7 +113,7 @@ final class ModuleReader
             $module['operations'][$name] = [
                 'role' => $query ? 'query' : 'action',
                 'auth' => $action !== [] && $action[0]->newInstance()->auth,
-                'line' => $method->getStartLine(),
+                'line' => self::line($source, $method),
                 ...self::returns($source, $method, $query ? 'query' : 'action'),
             ];
         }
@@ -302,6 +302,19 @@ final class ModuleReader
 
     private static function error(Source $source, \ReflectionMethod $method, string $message): PsxException
     {
-        return new PsxException($message, $source->file, $method->getStartLine() ?: null);
+        return new PsxException($message, $source->file, self::line($source, $method));
+    }
+
+    /**
+     * Where a method is written in the .psx file: the line of the function
+     * the compiler made it from.
+     */
+    private static function line(Source $source, \ReflectionMethod $method): ?int
+    {
+        $function = $source->namespace . '\\' . $method->getName();
+        $line = function_exists($function)
+            ? new \ReflectionFunction($function)->getStartLine()
+            : $method->getStartLine();
+        return $line === false ? null : $line;
     }
 }

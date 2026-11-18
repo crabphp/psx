@@ -1,6 +1,6 @@
 # PSX for Crab
 
-A page is one `.psx` file: a PHP `Server` class in a `<script lang="php">` block on top, a React component below. The compiler splits it. The PHP stays on the server; the browser gets the TSX and typed bindings to call the PHP.
+A page is one `.psx` file: PHP functions in a `<script lang="php">` block on top, a React component below. The compiler splits it. The PHP stays on the server; the browser gets the TSX and typed bindings to call the PHP.
 
 ```psx
 <script lang="php">
@@ -10,28 +10,24 @@ use App\Posts;
 use Crab\Psx\Action;
 use Crab\Psx\ActionResult;
 use Crab\Psx\Failure;
+use Crab\Psx\Inject;
 use Crab\Psx\PageData;
 
-final readonly class Server
+/** @return PageData<PostDetail>|Failure */
+function load(int $id, #[Inject] Posts $posts): PageData|Failure
 {
-    public function __construct(private Posts $posts) {}
+    $post = $posts->find($id);
+    return $post === null ? Failure::notFound() : PageData::of($post)->tags("post:{$id}");
+}
 
-    /** @return PageData<PostDetail>|Failure */
-    public function load(int $id): PageData|Failure
-    {
-        $post = $this->posts->find($id);
-        return $post === null ? Failure::notFound() : PageData::of($post)->tags("post:{$id}");
-    }
-
-    /** @return ActionResult<PostDetail> */
-    #[Action]
-    public function savePost(int $id, SavePost $input): ActionResult
-    {
-        $saved = $this->posts->save($id, $input);
-        return $saved === null
-            ? ActionResult::fail(Failure::conflict())
-            : ActionResult::ok($saved)->invalidate("post:{$id}");
-    }
+/** @return ActionResult<PostDetail> */
+#[Action]
+function savePost(int $id, SavePost $input, #[Inject] Posts $posts): ActionResult
+{
+    $saved = $posts->save($id, $input);
+    return $saved === null
+        ? ActionResult::fail(Failure::conflict())
+        : ActionResult::ok($saved)->invalidate("post:{$id}");
 }
 </script>
 import type { Props } from '@psx/types/pages/Posts/Edit';
@@ -44,7 +40,7 @@ export default function Edit({ data, scope }: Props) {
 
 This repository holds both halves: the Composer package `crabphp/psx` (here) and the npm package `@crabphp/psx` (in [`js/`](js)). A runnable application is in `../psx-demo`.
 
-**Status: 0.1.0, the first release, not production-ready.** [docs/STATUS.md](docs/STATUS.md) says what is implemented, what is tested and what is not; read it before relying on anything. The design this implements is [docs/DESIGN.md](docs/DESIGN.md).
+**Status: 0.2.0, not production-ready.** [docs/STATUS.md](docs/STATUS.md) says what is implemented, what is tested and what is not; read it before relying on anything. The design this implements is [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Requirements
 
@@ -135,19 +131,26 @@ $pages->page('/contact', 'resources/pages/Contact.psx')
 
 ## The server half
 
-The PHP block, `<script lang="php">` at the very start of the file up to its `</script>`, may hold imports, constants, functions, classes, enums and one `final readonly class Server`. The Server's constructor takes services. Its methods take what a Crab action takes: path parameters, an input class, `#[FromQuery]` fields, the user.
+The PHP block, `<script lang="php">` at the very start of the file up to its `</script>`, may hold imports, constants, functions, classes and enums. The page calls three kinds of function: `load()`, and those marked `#[Query]` or `#[Action]`. Each takes what a Crab action takes (path parameters, an input class, `#[FromQuery]` fields, the user) and the services it needs, marked `#[Inject]`:
+
+```php
+#[Action]
+function savePost(int $id, SavePost $input, #[Inject] Posts $posts): PostDetail
+```
+
+A service is made once for each worker and shared by its requests, so it keeps nothing of one request for the next. Put `#[Inject]` parameters before any parameter with a default. Any other function is the file's own helper, which the page cannot call; hand it the services it needs. There is no class to write and no `$this`: the compiler makes the class the router calls from these functions, and an error points at the function's own line.
 
 The end of the block is found by PHP's own lexer, so a `</script>` in a string, a comment or a heredoc does not end it; a `?>` inside it is refused. The `</script>` ends its line, and the TSX starts on the next. A file in the earlier `<?php` … `?>` form is refused with how to rewrite it.
 
-| Method | Called | Returns |
+| Function | Called | Returns |
 | --- | --- | --- |
 | `load()` | For the document, a navigation and a revalidation | A DTO, or `PageData::of($dto)->head(...)->tags(...)`; a `Failure` or a `Redirect` |
-| A method with `#[Query]` | `GET`, by `$name.at(scope)(input)` or `useQuery` | A DTO, or `QueryData::of($dto)->tags(...)` |
-| A method with `#[Action]` | `POST`, by `$name.at(scope)(input)` or `.form(formData)` | A DTO, or `ActionResult::ok($dto)->invalidate(...)->redirect(...)`; `ActionResult::fail(Failure)` |
+| A function with `#[Query]` | `GET`, by `$name.at(scope)(input)` or `useQuery` | A DTO, or `QueryData::of($dto)->tags(...)` |
+| A function with `#[Action]` | `POST`, by `$name.at(scope)(input)` or `.form(formData)` | A DTO, or `ActionResult::ok($dto)->invalidate(...)->redirect(...)`; `ActionResult::fail(Failure)` |
 
-Any other public method is a compile error. What a method returns is a `final readonly` class with typed public properties, a backed enum, a scalar, a date, or a list or map declared with `#[ListOf]` or `#[MapOf]`. `mixed` and an untyped `array` are refused: the TypeScript types are generated from these declarations, and the server checks every value against them before sending it.
+What such a function returns is a `final readonly` class with typed public properties, a backed enum, a scalar, a date, or a list or map declared with `#[ListOf]` or `#[MapOf]`. `mixed` and an untyped `array` are refused: the TypeScript types are generated from these declarations, and the server checks every value against them before sending it.
 
-What a request brings is read strictly on every PSX route, and refused before the method is called. What cannot be read one way only is a 400: JSON that does not parse, a body that is not an object, a field given twice, a list both appended to and indexed, a list with a gap, a field name that is not one. What reads but does not fit is a 422 with the fields named: a value of the wrong type, an object where a list is declared or the reverse, a case an enum does not have, and an integer outside ±9007199254740991 (in JSON, a form, the query or the path, and as an enum's value). A field the input does not declare is ignored, as Crab's binder ignores it. An integer-backed enum with a case outside that range does not compile. Ordinary routes of the same application read as they always did.
+What a request brings is read strictly on every PSX route, and refused before the function is called. What cannot be read one way only is a 400: JSON that does not parse, a body that is not an object, a field given twice, a list both appended to and indexed, a list with a gap, a field name that is not one. What reads but does not fit is a 422 with the fields named: a value of the wrong type, an object where a list is declared or the reverse, a case an enum does not have, and an integer outside ±9007199254740991 (in JSON, a form, the query or the path, and as an enum's value). A field the input does not declare is ignored, as Crab's binder ignores it. An integer-backed enum with a case outside that range does not compile. Ordinary routes of the same application read as they always did.
 
 A request that speaks the protocol is checked for its protocol and build before it is routed, so a tab of an older release is answered 409 by any address, also one that is no longer a route, and before any guard. A document request that does not accept HTML is answered 406.
 
@@ -183,7 +186,7 @@ export default function Edit({ data, scope }: Props) {
 ```
 
 - **`scope`** says which page a call is for. It is frozen. A save bound on post A's page saves post A, also when it is called after the browser has moved to post B.
-- **Expected failures are results**, `{ ok: false, problem }`: a refusal before the method, or a `Failure` it returned. A lost answer, a proxy's error page, an answer of the wrong shape, and any failure the server did not write on purpose (an exception, a middleware answering after the method), whatever its status, is a thrown `RequestFailure`; for a query and a navigation too. A mutation is never retried.
+- **Expected failures are results**, `{ ok: false, problem }`: a refusal before the function, or a `Failure` it returned. A lost answer, a proxy's error page, an answer of the wrong shape, and any failure the server did not write on purpose (an exception, a middleware answering after the method), whatever its status, is a thrown `RequestFailure`; for a query and a navigation too. A mutation is never retried.
 - **One call is not one delivery.** PSX sends a write once and never again, but it does not own the connection: a browser may itself send a `POST` again when a connection it was reusing dies before any byte of the answer (Chromium was seen to deliver one write twice, and three times, that way), and a proxy may do the same. Nothing in the page can see or prevent that. An operation that must happen once, a payment or an order, takes an idempotency key in its own input and keeps it in the same transaction as the write; PSX has no such option of its own, because a header without a store behind it would promise what it cannot keep.
 - **`#[Action(auth: true)]`** changes who is signed in. Its refusal is trusted only when the server says with it that who is signed in is still who the page knows: PSX says so for a `Failure` the method returned and for input that did not bind. After any other refusal, a guard's 401 or 403 among them, the page is closed and loaded again as whoever the browser is now; the refusal is still returned, and nothing is sent again.
 - **Forms** use React's own `<form action={...}>` and `useActionState`. `.form(formData)` sends a form as a form; an action that takes a file is called this way only.
@@ -231,7 +234,7 @@ What to watch, and how to put it right:
 
 - **Watch a page, not only the health route.** The application's health route says the server answers; it stays `200` while every page is `503`. Probe a server-rendered page as well. `php cua status` shows `psx-ssr` and how often it was restarted. In the log, in the order they get worse: `The renderer is not running.`, `the renderer did not listen within 5 seconds`, `exceeded five restarts in sixty seconds`.
 - **While the server still runs**, fix what keeps Node from starting. The server starts the renderer by itself, about every two seconds, and nothing needs to be restarted: in the test pages were rendered again 2.7 seconds later. A process that hangs in the renderer's place has to be ended first.
-- **After a server was killed outright** (`SIGKILL`, the machine's out-of-memory killer), look for a `ssr/server.mjs` process it left and end it: the renderer is not told when PHP dies that way. This is an open defect. A server that was stopped leaves none.
+- **After a server was killed outright** (`SIGKILL`, the machine's out-of-memory killer), its renderer sees within about a second that the process that started it is gone, and stops; so does the renderer of a single worker that was killed, and the workers turn to the one the server starts in its place. A renderer you run yourself (`psx.ssr.supervise` off) is not watched. A server that was stopped stops its renderer as before.
 - **After the server stopped**, fix the renderer and start the server: `php cua start --daemon`, or let the process manager do it. It will not start before the renderer can; that is the same rule. Run it under a process manager that starts it again.
 - **`RendererTransport`** is `render(array $envelope, ?string $nonce = null): string`. An application that binds its own implementation (to render somewhere else, or in a test) must declare the second parameter: PHP does not accept an implementation without it.
 

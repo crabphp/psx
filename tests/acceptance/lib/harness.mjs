@@ -1,6 +1,6 @@
 // What the acceptance tests share: a clean installation of the application from the packages as they
 // would be published, servers of it on ports of their own, gates, and a look into its store.
-import { execFile, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
     appendFileSync,
@@ -86,13 +86,21 @@ export async function install() {
         rmSync(join(to, 'vendor'), { recursive: true, force: true });
     }
     cpSync(join(acceptance, 'app'), base, { recursive: true });
+    // Each package is the version its checkout is: PSX's from its npm package, the framework's from
+    // its latest tag, so a constraint such as ^0.7.5 is met as it would be by the releases.
+    const versions = {
+        psx: JSON.parse(readFileSync(join(psx, 'js', 'package.json'), 'utf8')).version,
+        framework: execFileSync('git', ['describe', '--tags', '--abbrev=0'], { cwd: framework, encoding: 'utf8' })
+            .trim()
+            .replace(/^v/, ''),
+    };
     const composer = JSON.parse(readFileSync(join(base, 'composer.json'), 'utf8'));
     composer.repositories = ['framework', 'psx'].map(name => ({
         type: 'path',
         url: `../packages/${name}`,
         options: {
             symlink: false,
-            versions: { [`crabphp/${name}`]: name === 'psx' ? '0.1.0' : '0.7.0' },
+            versions: { [`crabphp/${name}`]: versions[name] },
         },
     }));
     writeFileSync(join(base, 'composer.json'), JSON.stringify(composer, null, 4));

@@ -4,12 +4,9 @@ final readonly class Overview
     public function __construct(public string $tenant) {}
 }
 
-final readonly class Server
+function load(string $tenant): Overview
 {
-    public function load(string $tenant): Overview
-    {
-        return new Overview($tenant);
-    }
+    return new Overview($tenant);
 }
 </script>
 import type { Props } from '@psx/types/pages/Tenant/Index';

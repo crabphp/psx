@@ -33,7 +33,7 @@ const png = Buffer.from(
 const padding = `// ${'x'.repeat(100)}\n`.repeat(80);
 
 const php = (large = false): string =>
-    `<script lang="php">\n// ${SENTINEL}\nfinal readonly class Server\n{\n    public function secret(): string { return '${SENTINEL}'; }\n}\n${large ? padding : ''}`;
+    `<script lang="php">\n// ${SENTINEL}\nfunction load(): string { return '${SENTINEL}'; }\n${large ? padding : ''}`;
 const page = (large = false): string =>
     `${php(large)}</script>\nexport default function Page() {\n    return null;\n}\n`;
 
@@ -360,7 +360,7 @@ describe('R1-B01: a file that holds PHP never becomes a file of the browser', ()
         expect(out.text).not.toContain(SENTINEL);
         expect(out.text).not.toContain('<script lang="php">');
         expect(out.text).not.toContain('<?php');
-        expect(out.text).not.toContain('final readonly class Server');
+        expect(out.text).not.toContain('function load(): string');
         expect(out.text).toContain('a gadget of npm');
         expect(out.text).toContain('hello');
         // Every file it was made of is listed for the release's own check, and none of them is private.

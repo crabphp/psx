@@ -4,6 +4,7 @@ use Acceptance\Store;
 use Crab\Psx\Action;
 use Crab\Psx\ActionResult;
 use Crab\Psx\Failure;
+use Crab\Psx\Inject;
 use Psr\Http\Message\UploadedFileInterface;
 
 final readonly class Sending
@@ -28,39 +29,31 @@ final readonly class Empty_
     public function __construct(public int $limit) {}
 }
 
-final readonly class Server
+const LIMIT = 128 * 1024;
+
+function load(): Empty_
 {
-    public const int LIMIT = 128 * 1024;
+    return new Empty_(LIMIT);
+}
 
-    public function __construct(
-        private Store $store,
-        private Gate $gate,
-    ) {}
-
-    public function load(): Empty_
-    {
-        return new Empty_(self::LIMIT);
+/** @return ActionResult<Kept> */
+#[Action]
+function put(Sending $input, #[Inject] Gate $gate, #[Inject] Store $store): ActionResult
+{
+    $gate->pass('upload.put');
+    $size = (int) $input->file->getSize();
+    if ($size > LIMIT) {
+        return ActionResult::fail(Failure::validation(['file' => 'is larger than 128 KiB']));
     }
-
-    /** @return ActionResult<Kept> */
-    #[Action]
-    public function put(Sending $input): ActionResult
-    {
-        $this->gate->pass('upload.put');
-        $size = (int) $input->file->getSize();
-        if ($size > self::LIMIT) {
-            return ActionResult::fail(Failure::validation(['file' => 'is larger than 128 KiB']));
-        }
-        $content = (string) $input->file->getStream();
-        $name = bin2hex(random_bytes(8));
-        $folder = storage_path('uploads');
-        if (!is_dir($folder)) {
-            mkdir($folder, 0o700, true);
-        }
-        file_put_contents("{$folder}/{$name}", $content);
-        $this->store->record('upload', 'anyone', $name);
-        return ActionResult::ok(new Kept($input->label, strlen($content), hash('sha256', $content)));
+    $content = (string) $input->file->getStream();
+    $name = bin2hex(random_bytes(8));
+    $folder = storage_path('uploads');
+    if (!is_dir($folder)) {
+        mkdir($folder, 0o700, true);
     }
+    file_put_contents("{$folder}/{$name}", $content);
+    $store->record('upload', 'anyone', $name);
+    return ActionResult::ok(new Kept($input->label, strlen($content), hash('sha256', $content)));
 }
 </script>
 import { useActionState } from 'react';

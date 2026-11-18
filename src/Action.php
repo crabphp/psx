@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Crab\Psx;
 
 /**
- * Marks a method of a .psx Server class as a mutation the page may call:
+ * Marks a function of a .psx file as a mutation the page may call:
  * the compiler gives the TSX below a binding of the same name, $savePost
  * for savePost(). It takes the path's parameters, one typed body, and the
  * request, user or session; it is reached by POST and never retried.
  */
-#[\Attribute(\Attribute::TARGET_METHOD)]
+#[\Attribute(\Attribute::TARGET_METHOD | \Attribute::TARGET_FUNCTION)]
 final readonly class Action
 {
     /**

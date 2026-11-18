@@ -173,7 +173,7 @@ export function listen(options: RendererOptions): Server {
         next();
     };
 
-    const state: Held = { holders: new Set(), retire: null };
+    const state: Held = { holders: new Set(), retire: null, stillOwn: () => stillOwn() };
     const server = createServer(socket => {
         const chunks: Buffer[] = [];
         let received = 0;
@@ -251,11 +251,28 @@ export function listen(options: RendererOptions): Server {
             accept(socket, message);
         });
     });
+    // The file this renderer listens at. Another renderer may take the same path after it, the one
+    // a server starts in place of a renderer whose worker was lost: that file is not this one's to remove.
+    let own: number | null = null;
+    const stillOwn = (): boolean => {
+        try {
+            return own !== null && lstatSync(options.socket).ino === own;
+        } catch {
+            return false;
+        }
+    };
     server.listen(options.socket, () => {
         // Only the account that runs the application talks to it.
         chmodSync(options.socket, 0o600);
+        own = lstatSync(options.socket).ino;
     });
     const close = (): void => {
+        // Closing a listening socket removes the file at its path, whosever that file is now (libuv
+        // unlinks by name). So only a renderer whose file is still there closes; one whose path was
+        // taken leaves it, and its descriptor closes as the process ends.
+        if (!stillOwn()) {
+            return;
+        }
         server.close();
         try {
             unlinkSync(options.socket);
@@ -275,6 +292,8 @@ export function listen(options: RendererOptions): Server {
 interface Held {
     holders: Set<Socket>;
     retire: (() => void) | null;
+    /** Whether the file at its path is still the one it listens at. */
+    stillOwn: () => boolean;
 }
 
 const held = new WeakMap<Server, Held>();
@@ -292,6 +311,11 @@ export function retire(server: Server, done: () => void): void {
     const finish = (): void => {
         if (state !== undefined) {
             state.retire = null;
+        }
+        if (state !== undefined && !state.stillOwn()) {
+            // Its path is another renderer's now: closing would remove that one's file.
+            done();
+            return;
         }
         server.close(done);
     };

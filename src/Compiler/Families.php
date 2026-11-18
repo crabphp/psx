@@ -549,7 +549,8 @@ final class Families
      */
     private static function readable(string $message, array $action): string
     {
-        return str_replace($action[0], 'Server', $message);
+        // The file's Server class is the compiler's, made from its functions: name the function.
+        return str_replace([$action[0] . '::', $action[0]], ['', 'Server'], $message);
     }
 
     /**

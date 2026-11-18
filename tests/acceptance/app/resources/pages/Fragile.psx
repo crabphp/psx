@@ -1,6 +1,7 @@
 <script lang="php">
 use Acceptance\Gate;
 use Crab\Psx\Failure;
+use Crab\Psx\Inject;
 use Crab\Routing\FromQuery;
 
 final readonly class Outcome
@@ -8,19 +9,14 @@ final readonly class Outcome
     public function __construct(public string $mode) {}
 }
 
-final readonly class Server
+function load(#[Inject] Gate $gate, #[FromQuery] string $mode = 'fine'): Outcome|Failure
 {
-    public function __construct(private Gate $gate) {}
-
-    public function load(#[FromQuery] string $mode = 'fine'): Outcome|Failure
-    {
-        $this->gate->pass('fragile.load', $mode);
-        return match ($mode) {
-            'missing' => Failure::notFound('There is nothing here.'),
-            'throw' => throw new \RuntimeException('The loader broke.'),
-            default => new Outcome($mode),
-        };
-    }
+    $gate->pass('fragile.load', $mode);
+    return match ($mode) {
+        'missing' => Failure::notFound('There is nothing here.'),
+        'throw' => throw new \RuntimeException('The loader broke.'),
+        default => new Outcome($mode),
+    };
 }
 </script>
 import { Link } from '@crabphp/psx';

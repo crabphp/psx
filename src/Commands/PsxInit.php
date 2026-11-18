@@ -119,12 +119,9 @@ final readonly class PsxInit implements Command
                     ) {}
                 }
 
-                final readonly class Server
+                function load(): Shell
                 {
-                    public function load(): Shell
-                    {
-                        return new Shell((string) config('app.name', 'Crab'));
-                    }
+                    return new Shell((string) config('app.name', 'Crab'));
                 }
                 </script>
                 import { Link } from '@crabphp/psx';
@@ -165,19 +162,16 @@ final readonly class PsxInit implements Command
                     ) {}
                 }
 
-                final readonly class Server
+                /** @return PageData<Home> */
+                function load(): PageData
                 {
-                    /** @return PageData<Home> */
-                    public function load(): PageData
-                    {
-                        return PageData::of(new Home('Hello from PHP ' . PHP_VERSION))->head(Head::title('Home'));
-                    }
+                    return PageData::of(new Home('Hello from PHP ' . PHP_VERSION))->head(Head::title('Home'));
+                }
 
-                    #[Action]
-                    public function greet(Greet $input): string
-                    {
-                        return "Hello, {$input->name}.";
-                    }
+                #[Action]
+                function greet(Greet $input): string
+                {
+                    return "Hello, {$input->name}.";
                 }
                 </script>
                 import { useState } from 'react';

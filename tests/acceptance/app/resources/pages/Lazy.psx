@@ -4,12 +4,9 @@ final readonly class Shown
     public function __construct(public string $label) {}
 }
 
-final readonly class Server
+function load(): Shown
 {
-    public function load(): Shown
-    {
-        return new Shown('loaded in the browser');
-    }
+    return new Shown('loaded in the browser');
 }
 </script>
 import { clientOnly } from '@crabphp/psx';

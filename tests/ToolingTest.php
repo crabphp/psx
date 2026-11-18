@@ -373,11 +373,11 @@ final class ToolingTest extends TestCase
         self::assertStringContainsString('GET /posts is already defined', $said);
         self::assertSame($good, $state());
 
-        // A Server class is made with a service that needs what nothing can make.
+        // A function is given a service that needs what nothing can make.
         file_put_contents("{$base}/routes/web.php", $web);
         file_put_contents($edit, str_replace(
-            ['private Posts $posts', 'function touch('],
-            ['private Posts $posts, private \\Crab\\Psx\\Tests\\Support\\NeedsMissing $needs', 'function touched('],
+            'function touch(int $id, #[Inject] Posts $posts)',
+            'function touched(int $id, #[Inject] Posts $posts, #[Inject] \\Crab\\Psx\\Tests\\Support\\NeedsMissing $needs)',
             $page,
         ));
         [$status, $said] = $compile();
@@ -431,16 +431,13 @@ final class ToolingTest extends TestCase
                 use Crab\Psx\Action;
                 use Crab\Psx\ActionResult;
 
-                final readonly class Server
+                /** @return ActionResult<string> */
+                #[Action(auth: true)]
+                function signIn(): ActionResult
                 {
-                    /** @return ActionResult<string> */
-                    #[Action(auth: true)]
-                    public function signIn(): ActionResult
-                    {
-                        \Crab\Psx\Tests\Support\FakeAuth::$revision = '4';
-                        \Crab\Psx\Tests\Support\FakeAuth::$partition = 'user-7';
-                        return ActionResult::ok('in')->authChanged();
-                    }
+                    \Crab\Psx\Tests\Support\FakeAuth::$revision = '4';
+                    \Crab\Psx\Tests\Support\FakeAuth::$partition = 'user-7';
+                    return ActionResult::ok('in')->authChanged();
                 }
                 </script>
                 export default function Session() {

@@ -7,12 +7,9 @@ final readonly class Named
     ) {}
 }
 
-final readonly class Server
+function load(): Named
 {
-    public function load(): Named
-    {
-        return new Named('left', 'right');
-    }
+    return new Named('left', 'right');
 }
 </script>
 import type { Props } from '@psx/types/pages/Boxes';
