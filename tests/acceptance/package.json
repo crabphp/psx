@@ -1,0 +1,11 @@
+{
+    "private": true,
+    "type": "module",
+    "description": "Browser acceptance tests of PSX: see README.md",
+    "scripts": {
+        "test": "node run.mjs"
+    },
+    "devDependencies": {
+        "playwright": "^1.65.1"
+    }
+}

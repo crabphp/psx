@@ -1,0 +1,95 @@
+<script lang="php">
+use Crab\Psx\Head;
+use Crab\Psx\PageData;
+use Crab\Routing\FromQuery;
+use Crab\Validation\ListOf;
+
+final readonly class Lines
+{
+    public function __construct(
+        public int $page,
+        #[ListOf('string')]
+        public array $lines,
+    ) {}
+}
+
+final readonly class Server
+{
+    /** @return PageData<Lines> */
+    public function load(#[FromQuery] int $page = 1): PageData
+    {
+        $lines = [];
+        // Enough of them to scroll through; no style is written on them, which a strict policy would refuse.
+        for ($line = 1; $line <= 200; $line++) {
+            $lines[] = "page {$page}, line {$line}";
+        }
+        return PageData::of(new Lines($page, $lines))->head(Head::title("Long page {$page}"));
+    }
+}
+</script>
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { Link, useRouter } from '@crabphp/psx';
+import { routes } from '@psx/routes';
+import type { Props } from '@psx/types/pages/Long';
+
+export default function Long({ data }: Props) {
+    const router = useRouter();
+    const [dirty, setDirty] = useState(false);
+    const [blocker, setBlocker] = useState<ReturnType<typeof router.block> | null>(null);
+    useEffect(() => {
+        if (!dirty) {
+            return;
+        }
+        const made = router.block(() => true);
+        setBlocker(made);
+        return () => {
+            made.dispose();
+            setBlocker(null);
+        };
+    }, [dirty, router]);
+    const held = useSyncExternalStore(
+        blocker?.subscribe ?? (() => () => undefined),
+        () => blocker?.getSnapshot() ?? null,
+        () => null,
+    );
+    return (
+        <main data-testid="long">
+            <h1 id="top" data-testid="long-page">
+                {data.page}
+            </h1>
+            <nav>
+                <Link href={routes.long({}, { page: data.page + 1 })} data-testid="next">
+                    Next
+                </Link>{' '}
+                <a href="#line-100" data-testid="to-line">
+                    To line 100
+                </a>{' '}
+                <a href="/plain" data-testid="plain-link">
+                    An ordinary route
+                </a>{' '}
+                <a href="https://example.invalid/" data-testid="outside-link">
+                    Another site
+                </a>{' '}
+                <Link href={routes.fragile({}, { mode: 'a' })}>Fragile a</Link> <Link href={routes.fragile({}, { mode: 'b' })}>Fragile b</Link>{' '}
+                <Link href={routes.fragile({}, { mode: 'missing' })}>Fragile missing</Link>{' '}
+                <Link href={routes.fragile({}, { mode: 'throw' })}>Fragile throw</Link>{' '}
+                <Link href={routes.fragile({}, { mode: 'render' })}>Fragile render</Link> <Link href={routes.lazy()}>Lazy</Link>
+            </nav>
+            <button data-testid="make-dirty" onClick={() => setDirty(true)}>
+                Change something
+            </button>
+            <span data-testid="held">{held === null ? '' : 'held'}</span>
+            <button data-testid="stay" onClick={() => blocker?.reset()}>
+                Stay
+            </button>
+            <button data-testid="leave" onClick={() => void blocker?.proceed()}>
+                Leave
+            </button>
+            {data.lines.map((line, index) => (
+                <p key={line} id={`line-${index + 1}`}>
+                    {line}
+                </p>
+            ))}
+        </main>
+    );
+}

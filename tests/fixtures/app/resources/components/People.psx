@@ -1,0 +1,30 @@
+<script lang="php">
+use Crab\Psx\Query;
+use Crab\Routing\FromQuery;
+use Crab\Validation\ListOf;
+
+final readonly class Person
+{
+    public function __construct(public string $name) {}
+}
+
+final readonly class Found
+{
+    public function __construct(
+        #[ListOf(Person::class)]
+        public array $people,
+    ) {}
+}
+
+final readonly class Server
+{
+    #[Query]
+    public function searchPeople(#[FromQuery] string $query): Found
+    {
+        return new Found([new Person("{$query} Lovelace")]);
+    }
+}
+</script>
+export default function People() {
+    return null;
+}

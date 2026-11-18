@@ -1,0 +1,39 @@
+<script lang="php">
+use Crab\Psx\Head;
+use Crab\Psx\PageData;
+
+final readonly class TenantData
+{
+    public function __construct(public string $tenant) {}
+}
+
+final readonly class Server
+{
+    /** @return PageData<TenantData> */
+    public function load(string $tenant): PageData
+    {
+        return PageData::of(new TenantData($tenant))->head(Head::title("Tenant {$tenant}"));
+    }
+}
+</script>
+import { useState } from 'react';
+import { Link } from '@crabphp/psx';
+import { routes } from '@psx/routes';
+import type { Props } from '@psx/types/layouts/Tenant';
+
+export default function Tenant({ data, children }: Props) {
+    // Of this tenant alone: another tenant's layout starts again.
+    const [clicks, setClicks] = useState(0);
+    return (
+        <div data-testid="tenant">
+            <h2 data-testid="tenant-name">{data.tenant}</h2>
+            <button data-testid="tenant-clicks" onClick={() => setClicks(clicks + 1)}>
+                {clicks}
+            </button>
+            <input data-testid="tenant-draft" defaultValue="" aria-label="Tenant draft" />
+            <Link href={routes.tenant.index({ tenant: data.tenant })}>Overview</Link>{' '}
+            <Link href={routes.tenant.members({ tenant: data.tenant })}>Members</Link>
+            {children}
+        </div>
+    );
+}

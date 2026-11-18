@@ -1,0 +1,55 @@
+{
+    "name": "crabphp/psx",
+    "description": "PSX for Crab: a PHP server class and a React component in one file, with generated typed bindings",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.4",
+        "crabphp/framework": "^0.7.5"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^13.4.4",
+        "carthage-software/mago": "1.57.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Crab\\Psx\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Crab\\Psx\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "@php vendor/bin/phpunit",
+        "format": "@php vendor/bin/mago fmt",
+        "format:check": "@php vendor/bin/mago fmt --check",
+        "lint": "@php vendor/bin/mago lint"
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../framework",
+            "options": {
+                "symlink": true
+            }
+        }
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "archive": {
+        "exclude": [
+            "/js",
+            "/tests",
+            "/docs",
+            "/vendor",
+            "/.phpunit.cache",
+            "/phpunit.xml",
+            "/mago.toml",
+            "/composer.lock",
+            "/.gitignore",
+            "/.gitattributes"
+        ]
+    }
+}

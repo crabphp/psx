@@ -1,0 +1,91 @@
+<script lang="php">
+use Acceptance\Gate;
+use Acceptance\Store;
+use Crab\Psx\Action;
+use Crab\Psx\ActionResult;
+use Crab\Psx\Failure;
+use Psr\Http\Message\UploadedFileInterface;
+
+final readonly class Sending
+{
+    public function __construct(
+        public UploadedFileInterface $file,
+        public string $label = '',
+    ) {}
+}
+
+final readonly class Kept
+{
+    public function __construct(
+        public string $label,
+        public int $size,
+        public string $digest,
+    ) {}
+}
+
+final readonly class Empty_
+{
+    public function __construct(public int $limit) {}
+}
+
+final readonly class Server
+{
+    public const int LIMIT = 128 * 1024;
+
+    public function __construct(
+        private Store $store,
+        private Gate $gate,
+    ) {}
+
+    public function load(): Empty_
+    {
+        return new Empty_(self::LIMIT);
+    }
+
+    /** @return ActionResult<Kept> */
+    #[Action]
+    public function put(Sending $input): ActionResult
+    {
+        $this->gate->pass('upload.put');
+        $size = (int) $input->file->getSize();
+        if ($size > self::LIMIT) {
+            return ActionResult::fail(Failure::validation(['file' => 'is larger than 128 KiB']));
+        }
+        $content = (string) $input->file->getStream();
+        $name = bin2hex(random_bytes(8));
+        $folder = storage_path('uploads');
+        if (!is_dir($folder)) {
+            mkdir($folder, 0o700, true);
+        }
+        file_put_contents("{$folder}/{$name}", $content);
+        $this->store->record('upload', 'anyone', $name);
+        return ActionResult::ok(new Kept($input->label, strlen($content), hash('sha256', $content)));
+    }
+}
+</script>
+import { useActionState } from 'react';
+import { RequestFailure } from '@crabphp/psx';
+import type { Props } from '@psx/types/pages/Upload';
+
+export default function Upload({ data, scope }: Props) {
+    const [said, send, sending] = useActionState(async (_previous: string, form: FormData): Promise<string> => {
+        try {
+            const result = await $put.at(scope).form(form);
+            return result.ok ? `kept:${result.data.size}:${result.data.digest}` : `refused:${JSON.stringify(result.problem.fields)}`;
+        } catch (error) {
+            return error instanceof RequestFailure ? `failed:${error.kind}:${error.outcome}:${error.status ?? ''}` : 'threw';
+        }
+    }, '');
+    return (
+        <main data-testid="upload">
+            <p>Up to {data.limit} bytes.</p>
+            <form action={send}>
+                <input name="label" defaultValue="a file" aria-label="Label" />
+                <input name="file" type="file" aria-label="File" />
+                <button>Send</button>
+            </form>
+            <span data-testid="sending">{sending ? 'sending' : ''}</span>
+            <span data-testid="upload-said">{said}</span>
+        </main>
+    );
+}

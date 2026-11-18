@@ -1,0 +1,138 @@
+<script lang="php">
+use Acceptance\Store;
+use Crab\Psx\Action;
+use Crab\Psx\ActionResult;
+use Crab\Psx\Failure;
+use Crab\Validation\ListOf;
+
+enum Intent: string
+{
+    case Save = 'save';
+    case Publish = 'publish';
+}
+
+final readonly class Entry
+{
+    public function __construct(
+        public string $title,
+        #[ListOf('string')]
+        public array $tags = [],
+        public ?string $note = null,
+        public ?Intent $intent = null,
+        public bool $pinned = false,
+    ) {}
+}
+
+final readonly class Echoed
+{
+    public function __construct(
+        public string $title,
+        #[ListOf('string')]
+        public array $tags,
+        public ?string $note,
+        public ?Intent $intent,
+        public bool $pinned,
+    ) {}
+}
+
+final readonly class Blank
+{
+    public function __construct(public string $hint) {}
+}
+
+final readonly class Server
+{
+    public function __construct(private Store $store) {}
+
+    public function load(): Blank
+    {
+        return new Blank('Fill it in.');
+    }
+
+    /** @return ActionResult<Echoed> */
+    #[Action]
+    public function submit(Entry $entry): ActionResult
+    {
+        if (trim($entry->title) === '') {
+            return ActionResult::fail(Failure::validation(['title' => 'is needed']));
+        }
+        $this->store->record('submit', 'anyone', $entry->title);
+        return ActionResult::ok(new Echoed($entry->title, $entry->tags, $entry->note, $entry->intent, $entry->pinned));
+    }
+}
+</script>
+import { useActionState, useState } from 'react';
+import { RequestFailure } from '@crabphp/psx';
+import type { Props } from '@psx/types/pages/Forms';
+
+type State = { runs: number; previousRuns: number; echoed: string; problem: string };
+const idle: State = { runs: 0, previousRuns: -1, echoed: '', problem: '' };
+
+export default function Forms({ data, scope }: Props) {
+    // A controlled draft: it is the component's, and an expected failure leaves it as it was typed.
+    const [title, setTitle] = useState('');
+    const [tags, setTags] = useState(['']);
+
+    const [state, submit, pending] = useActionState(async (previous: State, form: FormData): Promise<State> => {
+        const next = { ...previous, runs: previous.runs + 1, previousRuns: previous.runs };
+        try {
+            const result = await $submit.at(scope).form(form);
+            return result.ok
+                ? { ...next, echoed: JSON.stringify(result.data), problem: '' }
+                : {
+                      ...next,
+                      echoed: '',
+                      // What is wrong with which field, or else what kind of refusal it was.
+                      problem:
+                          Object.keys(result.problem.fields ?? {}).length > 0
+                              ? JSON.stringify(result.problem.fields)
+                              : result.problem.code,
+                  };
+        } catch (error) {
+            return { ...next, echoed: '', problem: error instanceof RequestFailure ? `${error.kind}:${error.outcome}` : 'threw' };
+        }
+    }, idle);
+
+    return (
+        <main data-testid="forms">
+            <p>{data.hint}</p>
+            <form action={submit}>
+                <label>
+                    Title
+                    <input name="title" value={title} onChange={event => setTitle(event.target.value)} />
+                </label>
+                {tags.map((tag, index) => (
+                    <label key={index}>
+                        Tag {index + 1}
+                        <input
+                            name="tags[]"
+                            value={tag}
+                            onChange={event => setTags(tags.map((old, at) => (at === index ? event.target.value : old)))}
+                        />
+                    </label>
+                ))}
+                <button type="button" data-testid="more-tags" onClick={() => setTags([...tags, ''])}>
+                    Another tag
+                </button>
+                <label>
+                    Note
+                    <input name="note" defaultValue="" />
+                </label>
+                <label>
+                    <input type="checkbox" name="pinned" value="true" /> Pinned
+                </label>
+                <button name="intent" value="save">
+                    Save
+                </button>
+                <button name="intent" value="publish">
+                    Publish
+                </button>
+            </form>
+            <span data-testid="runs">{state.runs}</span>
+            <span data-testid="previous-runs">{state.previousRuns}</span>
+            <span data-testid="pending">{pending ? 'pending' : ''}</span>
+            <pre data-testid="echoed">{state.echoed}</pre>
+            <pre data-testid="problem">{state.problem}</pre>
+        </main>
+    );
+}

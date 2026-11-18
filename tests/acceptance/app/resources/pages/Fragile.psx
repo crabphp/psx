@@ -1,0 +1,61 @@
+<script lang="php">
+use Acceptance\Gate;
+use Crab\Psx\Failure;
+use Crab\Routing\FromQuery;
+
+final readonly class Outcome
+{
+    public function __construct(public string $mode) {}
+}
+
+final readonly class Server
+{
+    public function __construct(private Gate $gate) {}
+
+    public function load(#[FromQuery] string $mode = 'fine'): Outcome|Failure
+    {
+        $this->gate->pass('fragile.load', $mode);
+        return match ($mode) {
+            'missing' => Failure::notFound('There is nothing here.'),
+            'throw' => throw new \RuntimeException('The loader broke.'),
+            default => new Outcome($mode),
+        };
+    }
+}
+</script>
+import { Link } from '@crabphp/psx';
+import type { RenderErrorProps, RouteErrorProps } from '@crabphp/psx';
+import { routes } from '@psx/routes';
+import type { Props } from '@psx/types/pages/Fragile';
+
+export default function Fragile({ data }: Props) {
+    if (data.mode === 'render') {
+        throw new Error('The component broke.');
+    }
+    return (
+        <main data-testid="fragile">
+            mode {data.mode} <Link href={routes.fragile({}, { mode: 'a' })}>Fragile a</Link>{' '}
+            <Link href={routes.fragile({}, { mode: 'b' })}>Fragile b</Link> <Link href={routes.long()}>Long</Link>
+        </main>
+    );
+}
+
+export function RouteError({ problem }: RouteErrorProps) {
+    return (
+        <main data-testid="route-error">
+            {problem.status} {problem.code} {problem.message} <Link href={routes.long()}>Long</Link>
+        </main>
+    );
+}
+
+export function ErrorBoundary({ error, reset }: RenderErrorProps) {
+    return (
+        <main data-testid="render-error">
+            {error.message} <button onClick={reset}>Again</button>
+        </main>
+    );
+}
+
+export function Pending() {
+    return <main data-testid="page-pending">loading…</main>;
+}

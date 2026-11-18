@@ -1,0 +1,9 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/vendor/autoload.php';
+
+// Without a loadable app.php, `status` and `stop` still reach a server in the background.
+exit(Crab\Cua::run(__DIR__ . '/app.php', array_slice($argv, 1)));

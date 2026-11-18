@@ -1,0 +1,19 @@
+{
+    "name": "crabphp/psx-acceptance",
+    "description": "The application PSX's browser acceptance tests drive",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": "^8.4",
+        "ext-pdo_sqlite": "*",
+        "crabphp/framework": "^0.7",
+        "crabphp/psx": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Acceptance\\": "src/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

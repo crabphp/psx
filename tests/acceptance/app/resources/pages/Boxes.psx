@@ -1,0 +1,28 @@
+<script lang="php">
+final readonly class Named
+{
+    public function __construct(
+        public string $first,
+        public string $second,
+    ) {}
+}
+
+final readonly class Server
+{
+    public function load(): Named
+    {
+        return new Named('left', 'right');
+    }
+}
+</script>
+import type { Props } from '@psx/types/pages/Boxes';
+import Box from '../components/Box.psx';
+
+export default function Boxes({ data }: Props) {
+    return (
+        <main data-testid="boxes">
+            <Box box={data.first} />
+            <Box box={data.second} />
+        </main>
+    );
+}

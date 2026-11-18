@@ -1,0 +1,102 @@
+<script lang="php">
+use Acceptance\Gate;
+use Acceptance\Session;
+use Acceptance\Store;
+use Crab\Psx\Action;
+use Crab\Psx\ActionResult;
+use Crab\Psx\Failure;
+use Crab\Psx\Head;
+use Crab\Psx\PageData;
+use Crab\Psx\Redirect;
+use Psr\Http\Message\ServerRequestInterface;
+
+final readonly class LoginData
+{
+    public function __construct(public string $greeting) {}
+}
+
+final readonly class Credentials
+{
+    public function __construct(
+        public string $account,
+        public string $password,
+    ) {}
+}
+
+final readonly class Server
+{
+    public function __construct(
+        private Session $session,
+        private Store $store,
+        private Gate $gate,
+    ) {}
+
+    /** @return PageData<LoginData>|Redirect */
+    public function load(ServerRequestInterface $request): PageData|Redirect
+    {
+        if ($this->session->account($request) !== null) {
+            return Redirect::to('/');
+        }
+        return PageData::of(new LoginData('Nobody is signed in.'))->head(Head::title('Sign in'));
+    }
+
+    /** @return ActionResult<string> */
+    #[Action(auth: true)]
+    public function signIn(ServerRequestInterface $request, Credentials $input): ActionResult
+    {
+        $this->gate->pass('signin', $input->account);
+        if (preg_match('/^[a-z]{2,12}$/', $input->account) !== 1 || $input->password !== "pw-{$input->account}") {
+            return ActionResult::fail(Failure::validation(['password' => 'does not match']));
+        }
+        $cookie = $this->session->change($request, $input->account);
+        if ($cookie === null) {
+            return ActionResult::fail(Failure::conflict('Who is signed in changed meanwhile.'));
+        }
+        $this->store->record('signIn', $input->account);
+        return ActionResult::ok($input->account)->authChanged()->cookie($cookie);
+    }
+}
+</script>
+import { useState } from 'react';
+import { RequestFailure } from '@crabphp/psx';
+import type { Props } from '@psx/types/pages/Login';
+
+export default function Login({ data, scope }: Props) {
+    const [account, setAccount] = useState('');
+    const [password, setPassword] = useState('');
+    const [said, setSaid] = useState('');
+
+    async function submit(event: React.FormEvent) {
+        event.preventDefault();
+        try {
+            const result = await $signIn.at(scope)({ account, password });
+            if (result.ok && result.auth?.status !== 'reconciled') {
+                // This page is not the signed-in browser's to show: the application chooses where it goes,
+                // as a new document.
+                window.location.assign('/');
+                return;
+            }
+            setSaid(result.ok ? `in:${result.data}` : `refused:${result.problem.fields.password?.[0] ?? result.problem.code}`);
+        } catch (error) {
+            setSaid(error instanceof RequestFailure ? `failed:${error.kind}:${error.outcome}` : 'threw');
+        }
+    }
+
+    return (
+        <main data-testid="login">
+            <p data-testid="greeting">{data.greeting}</p>
+            <form onSubmit={submit}>
+                <label>
+                    Account
+                    <input name="account" value={account} onChange={event => setAccount(event.target.value)} />
+                </label>
+                <label>
+                    Password
+                    <input name="password" type="password" value={password} onChange={event => setPassword(event.target.value)} />
+                </label>
+                <button>Sign in</button>
+            </form>
+            <span data-testid="login-said">{said}</span>
+        </main>
+    );
+}

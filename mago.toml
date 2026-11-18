@@ -1,0 +1,37 @@
+#:schema https://mago.carthage.software/1.57.0/schema.json
+version = "1"
+php-version = "8.4.0"
+
+[source]
+workspace = "."
+paths = ["src/", "tests/"]
+excludes = ["vendor/**", "js/**", "tests/fixtures/**", "tests/tmp/**", "tests/acceptance/**"]
+
+[formatter]
+print-width = 120
+
+[linter]
+integrations = ["phpunit"]
+
+[linter.rules]
+# The compiler and the protocol handlers branch as the language and the wire format do.
+cyclomatic-complexity = { enabled = false }
+halstead = { enabled = false }
+kan-defect = { enabled = false }
+too-many-methods = { enabled = false }
+too-many-properties = { enabled = false }
+excessive-parameter-list = { enabled = false }
+# File operations are checked by their return value and reported as PsxException.
+no-error-control-operator = { enabled = false }
+assertion-style = { enabled = false }
+literal-named-argument = { enabled = false }
+no-boolean-flag-parameter = { enabled = false }
+no-else-clause = { enabled = false }
+# isset() is the check for optional array keys, where null is absent.
+no-isset = { enabled = false }
+no-empty = { enabled = false }
+# As the framework: a falsy fallback is meant where ?: is written, and a best-effort cleanup says so in a comment.
+no-shorthand-ternary = { enabled = false }
+no-empty-catch-clause = { enabled = false }
+no-nested-ternary = { enabled = false }
+prefer-early-continue = { enabled = false }

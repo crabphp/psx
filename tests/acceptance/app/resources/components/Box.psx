@@ -1,0 +1,58 @@
+<script lang="php">
+use Acceptance\Gate;
+use Acceptance\Store;
+use Crab\Psx\Action;
+use Crab\Psx\ActionResult;
+use Crab\Psx\Query;
+use Crab\Psx\QueryData;
+
+final readonly class Counted
+{
+    public function __construct(
+        public string $box,
+        public int $count,
+    ) {}
+}
+
+final readonly class Server
+{
+    public function __construct(
+        private Store $store,
+        private Gate $gate,
+    ) {}
+
+    /** @return QueryData<Counted> */
+    #[Query]
+    public function read(string $box): QueryData
+    {
+        $this->gate->pass('box.read', $box);
+        return QueryData::of(new Counted($box, $this->store->count($box)))->tags("box:{$box}");
+    }
+
+    /** @return ActionResult<int> */
+    #[Action]
+    public function add(string $box): ActionResult
+    {
+        return ActionResult::ok($this->store->add($box))->invalidate("box:{$box}");
+    }
+}
+</script>
+import { useQuery } from '@crabphp/psx';
+import { services } from '@psx/services';
+
+// A component with a query and an action of its own, mounted on a path with a parameter: each
+// instance is bound to its own box.
+export default function Box({ box }: { box: string }) {
+    const scope = services.box.scope({ box });
+    const counted = useQuery($read.at(scope), {});
+    return (
+        <div data-testid={`box-${box}`}>
+            <span data-testid={`box-${box}-count`}>
+                {counted.data === undefined ? counted.status : `${counted.data.box}=${counted.data.count}`}
+            </span>
+            <button data-testid={`box-${box}-add`} onClick={() => void $add.at(scope)({})}>
+                Add
+            </button>
+        </div>
+    );
+}

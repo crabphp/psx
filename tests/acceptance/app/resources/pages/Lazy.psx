@@ -1,0 +1,26 @@
+<script lang="php">
+final readonly class Shown
+{
+    public function __construct(public string $label) {}
+}
+
+final readonly class Server
+{
+    public function load(): Shown
+    {
+        return new Shown('loaded in the browser');
+    }
+}
+</script>
+import { clientOnly } from '@crabphp/psx';
+import type { Props } from '@psx/types/pages/Lazy';
+
+const Clock = clientOnly(() => import('../components/Clock'), <span data-testid="clock-fallback">waiting</span>);
+
+export default function Lazy({ data }: Props) {
+    return (
+        <main data-testid="lazy">
+            <Clock label={data.label} />
+        </main>
+    );
+}

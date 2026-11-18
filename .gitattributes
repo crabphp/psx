@@ -1,0 +1,8 @@
+# What a Composer install of crabphp/psx does not need. The npm package is published from js/ on its own.
+/js             export-ignore
+/tests          export-ignore
+/docs           export-ignore
+/phpunit.xml    export-ignore
+/mago.toml      export-ignore
+/.gitignore     export-ignore
+/.gitattributes export-ignore

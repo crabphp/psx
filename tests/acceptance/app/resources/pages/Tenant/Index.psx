@@ -1,0 +1,19 @@
+<script lang="php">
+final readonly class Overview
+{
+    public function __construct(public string $tenant) {}
+}
+
+final readonly class Server
+{
+    public function load(string $tenant): Overview
+    {
+        return new Overview($tenant);
+    }
+}
+</script>
+import type { Props } from '@psx/types/pages/Tenant/Index';
+
+export default function Index({ data }: Props) {
+    return <p data-testid="tenant-page">overview of {data.tenant}</p>;
+}

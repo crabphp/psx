@@ -1,0 +1,117 @@
+<script lang="php">
+use Acceptance\Gate;
+use Acceptance\Signed;
+use Acceptance\Store;
+use Crab\Psx\Action;
+use Crab\Psx\ActionResult;
+use Crab\Psx\Head;
+use Crab\Psx\PageData;
+use Crab\Psx\Query;
+use Crab\Psx\QueryData;
+use Psr\Http\Message\ServerRequestInterface;
+
+final readonly class HomeData
+{
+    public function __construct(
+        public string $account,
+        public string $note,
+        public int $version,
+    ) {}
+}
+
+final readonly class Mine
+{
+    public function __construct(
+        public string $account,
+        public string $value,
+    ) {}
+}
+
+final readonly class NoteInput
+{
+    public function __construct(public string $text) {}
+}
+
+final readonly class Server
+{
+    public function __construct(
+        private Store $store,
+        private Gate $gate,
+    ) {}
+
+    /** @return PageData<HomeData> */
+    public function load(ServerRequestInterface $request): PageData
+    {
+        $account = (string) $request->getAttribute(Signed::ACCOUNT);
+        $this->gate->pass('home.load', $account);
+        $note = $this->store->note($account);
+        return PageData::of(new HomeData($account, $note['text'], $note['version']))
+            ->head(Head::title("Home of {$account}"))
+            ->tags('note');
+    }
+
+    /** @return QueryData<Mine> */
+    #[Query]
+    public function mine(ServerRequestInterface $request): QueryData
+    {
+        $account = (string) $request->getAttribute(Signed::ACCOUNT);
+        $this->gate->pass('home.query', $account);
+        return QueryData::of(new Mine($account, "private of {$account}"))->tags('note');
+    }
+
+    /** @return ActionResult<int> */
+    #[Action]
+    public function save(ServerRequestInterface $request, NoteInput $input): ActionResult
+    {
+        $account = (string) $request->getAttribute(Signed::ACCOUNT);
+        $this->gate->pass('home.save', $account);
+        return ActionResult::ok($this->store->write($account, $input->text))->invalidate('note');
+    }
+
+    /**
+     * Writes, and then fails: what the browser is told of it must not be "nothing happened".
+     */
+    #[Action]
+    public function writeThenFail(ServerRequestInterface $request): int
+    {
+        $account = (string) $request->getAttribute(Signed::ACCOUNT);
+        $this->store->record('writeThenFail', $account);
+        throw new \RuntimeException('After the write.');
+    }
+}
+</script>
+import { useState } from 'react';
+import { RequestFailure, useQuery } from '@crabphp/psx';
+import type { Props } from '@psx/types/pages/Home';
+
+export default function Home({ data, scope }: Props) {
+    const mine = useQuery($mine.at(scope), {});
+    const [draft, setDraft] = useState('');
+    const [said, setSaid] = useState('');
+
+    async function run(what: () => Promise<{ ok: boolean }>) {
+        try {
+            const result = await what();
+            setSaid(result.ok ? 'saved' : 'refused');
+        } catch (error) {
+            setSaid(error instanceof RequestFailure ? `failed:${error.kind}:${error.outcome}` : 'threw');
+        }
+    }
+
+    return (
+        <section data-testid="home">
+            <h1 data-testid="home-account">{data.account}</h1>
+            <p data-testid="note">{data.note}</p>
+            <p data-testid="version">{data.version}</p>
+            <p data-testid="mine">{mine.data === undefined ? mine.status : `${mine.data.account}: ${mine.data.value}`}</p>
+            <input data-testid="draft" value={draft} onChange={event => setDraft(event.target.value)} aria-label="Draft" />
+            <button data-testid="save" onClick={() => void run(() => $save.at(scope)({ text: draft }))}>
+                Save
+            </button>
+            <button data-testid="write-then-fail" onClick={() => void run(() => $writeThenFail.at(scope)({}))}>
+                Write then fail
+            </button>
+            <span data-testid="home-said">{said}</span>
+        </section>
+    );
+}

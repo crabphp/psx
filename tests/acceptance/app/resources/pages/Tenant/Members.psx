@@ -1,0 +1,25 @@
+<script lang="php">
+use Crab\Validation\ListOf;
+
+final readonly class Members
+{
+    public function __construct(
+        public string $tenant,
+        #[ListOf('string')]
+        public array $names,
+    ) {}
+}
+
+final readonly class Server
+{
+    public function load(string $tenant): Members
+    {
+        return new Members($tenant, ["{$tenant}-one", "{$tenant}-two"]);
+    }
+}
+</script>
+import type { Props } from '@psx/types/pages/Tenant/Members';
+
+export default function MembersPage({ data }: Props) {
+    return <p data-testid="tenant-page">members of {data.tenant}: {data.names.join(', ')}</p>;
+}

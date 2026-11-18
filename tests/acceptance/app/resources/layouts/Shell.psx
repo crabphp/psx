@@ -1,0 +1,125 @@
+<script lang="php">
+use Acceptance\Gate;
+use Acceptance\Session;
+use Acceptance\Signed;
+use Acceptance\Store;
+use Crab\Psx\Action;
+use Crab\Psx\ActionResult;
+use Crab\Psx\Failure;
+use Crab\Psx\Head;
+use Crab\Psx\PageData;
+use Psr\Http\Message\ServerRequestInterface;
+
+final readonly class Viewer
+{
+    public function __construct(
+        public string $account,
+        public string $secret,
+    ) {}
+}
+
+final readonly class Account
+{
+    public function __construct(public string $account) {}
+}
+
+final readonly class Server
+{
+    public function __construct(
+        private Session $session,
+        private Store $store,
+        private Gate $gate,
+    ) {}
+
+    /** @return PageData<Viewer> */
+    public function load(ServerRequestInterface $request): PageData
+    {
+        $account = (string) $request->getAttribute(Signed::ACCOUNT);
+        $this->gate->pass('shell.load', $account);
+        return PageData::of(new Viewer($account, "secret of {$account}"))->head(Head::title("Signed in as {$account}"));
+    }
+
+    /** @return ActionResult<string> */
+    #[Action(auth: true)]
+    public function signOut(ServerRequestInterface $request): ActionResult
+    {
+        $account = (string) $request->getAttribute(Signed::ACCOUNT);
+        $this->gate->pass('signout', $account);
+        $cookie = $this->session->change($request, null);
+        if ($cookie === null) {
+            return ActionResult::fail(Failure::conflict('Who is signed in changed meanwhile.'));
+        }
+        $this->store->record('signOut', $account);
+        return ActionResult::ok('out')->authChanged()->cookie($cookie);
+    }
+
+    /** @return ActionResult<string> */
+    #[Action(auth: true)]
+    public function switchTo(ServerRequestInterface $request, Account $input): ActionResult
+    {
+        $account = (string) $request->getAttribute(Signed::ACCOUNT);
+        if (preg_match('/^[a-z]{2,12}$/', $input->account) !== 1) {
+            return ActionResult::fail(Failure::validation(['account' => 'is no account']));
+        }
+        $this->gate->pass('switch', $account);
+        $cookie = $this->session->change($request, $input->account);
+        if ($cookie === null) {
+            return ActionResult::fail(Failure::conflict('Who is signed in changed meanwhile.'));
+        }
+        $this->store->record('switchTo', $account, $input->account);
+        return ActionResult::ok($input->account)->authChanged()->cookie($cookie);
+    }
+}
+</script>
+import { useState } from 'react';
+import { Link, RequestFailure, useRouter } from '@crabphp/psx';
+import { routes } from '@psx/routes';
+import type { Props } from '@psx/types/layouts/Shell';
+
+export default function Shell({ data, scope, children }: Props) {
+    const router = useRouter();
+    // The layout's own state: kept while pages under it change.
+    const [clicks, setClicks] = useState(0);
+    const [said, setSaid] = useState('');
+
+    async function run(what: () => Promise<{ ok: boolean; auth?: { status: string } }>, to: string) {
+        try {
+            const result = await what();
+            if (result.ok && result.auth?.status !== 'reconciled') {
+                // The page could not be shown again as whoever the browser is now: a new document.
+                window.location.assign(to);
+                return;
+            }
+            setSaid(result.ok ? 'done' : 'refused');
+        } catch (error) {
+            setSaid(error instanceof RequestFailure ? `failed:${error.kind}:${error.outcome}` : 'threw');
+        }
+    }
+
+    return (
+        <div data-testid="shell">
+            <header>
+                <span data-testid="me">{data.account}</span> <span data-testid="secret">{data.secret}</span>
+                <nav>
+                    <Link href={routes.home()}>Home</Link> <Link href={routes.other()}>Other</Link>{' '}
+                    <Link href={routes.tenant.index({ tenant: 'acme' })}>Acme</Link>{' '}
+                    <Link href={routes.tenant.members({ tenant: 'acme' })}>Acme members</Link>{' '}
+                    <Link href={routes.tenant.index({ tenant: 'globex' })}>Globex</Link>
+                </nav>
+                <button data-testid="shell-clicks" onClick={() => setClicks(clicks + 1)}>
+                    {clicks}
+                </button>
+                <input data-testid="shell-draft" defaultValue="" aria-label="Shell draft" />
+                <button data-testid="sign-out" onClick={() => void run(() => $signOut.at(scope)({}), '/login')}>
+                    Sign out
+                </button>
+                <button data-testid="switch-bob" onClick={() => void run(() => $switchTo.at(scope)({ account: 'bob' }), window.location.href)}>
+                    Switch to bob
+                </button>
+                <span data-testid="shell-said">{said}</span>
+                <span data-testid="pending">{router.pending === null ? '' : 'pending'}</span>
+            </header>
+            <main>{children}</main>
+        </div>
+    );
+}

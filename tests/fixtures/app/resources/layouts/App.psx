@@ -1,0 +1,35 @@
+<script lang="php">
+use Crab\Psx\Query;
+use Crab\Psx\Tests\Support\Posts;
+use Crab\Routing\FromQuery;
+
+final readonly class Viewer
+{
+    public function __construct(
+        public string $name,
+        public string $theme,
+    ) {}
+}
+
+final readonly class Server
+{
+    public function __construct(private Posts $posts) {}
+
+    public function load(#[FromQuery] string $theme = 'light'): Viewer
+    {
+        $this->posts->ran[] = 'layout';
+        return new Viewer('Ada', $theme);
+    }
+
+    #[Query]
+    public function ping(): string
+    {
+        return 'pong';
+    }
+}
+</script>
+import type { Props } from '@psx/types/layouts/App';
+
+export default function App({ data, children }: Props) {
+    return <div data-theme={data.theme}>{data.name}{children}</div>;
+}

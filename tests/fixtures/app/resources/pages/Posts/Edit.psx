@@ -1,0 +1,143 @@
+<script lang="php">
+use Crab\Http\Cookie;
+use Crab\Psx\Action;
+use Crab\Psx\ActionResult;
+use Crab\Psx\Failure;
+use Crab\Psx\Head;
+use Crab\Psx\PageData;
+use Crab\Psx\Query;
+use Crab\Psx\QueryData;
+use Crab\Psx\Redirect;
+use Crab\Psx\Tests\Support\Posts;
+use Crab\Routing\FromQuery;
+use Crab\Validation\Length;
+
+const SECRET_NOTE = 'sentinel-secret-7f3a never leaves the server';
+
+enum Status: string
+{
+    case Draft = 'draft';
+    case Live = 'live';
+}
+
+final readonly class PostView
+{
+    public function __construct(
+        public int $id,
+        public string $title,
+        public int $version,
+        public Status $status,
+        public ?\DateTimeImmutable $published,
+    ) {}
+}
+
+final readonly class EditData
+{
+    public function __construct(public PostView $post) {}
+}
+
+final readonly class SavePost
+{
+    public function __construct(
+        #[Length(min: 1, max: 40)]
+        public string $title,
+        public int $version,
+        public ?string $note = null,
+    ) {}
+}
+
+function view(int $id, array $post): PostView
+{
+    return new PostView($id, $post['title'], $post['version'], Status::Draft, new \DateTimeImmutable('2026-01-02T03:04:05+00:00'));
+}
+
+final readonly class Server
+{
+    public function __construct(private Posts $posts) {}
+
+    /** @return PageData<EditData>|Failure|Redirect */
+    public function load(int $id, #[FromQuery] string $tab = 'main'): PageData|Failure|Redirect
+    {
+        $this->posts->ran[] = 'page';
+        if ($id === 1) {
+            return Redirect::to('/posts/7');
+        }
+        $post = $this->posts->posts[$id] ?? null;
+        if ($post === null) {
+            return Failure::notFound('No such post.');
+        }
+        $closing = "?> is text here, and </script> too";
+        return PageData::of(new EditData(view($id, $post)))
+            ->head(Head::title("Edit {$post['title']}")->withDescription('Editing <a post> & more'))
+            ->tags('posts', "post:{$id}");
+    }
+
+    /** @return ActionResult<PostView> */
+    #[Action]
+    public function savePost(int $id, SavePost $input): ActionResult
+    {
+        $this->posts->ran[] = 'savePost';
+        $post = $this->posts->posts[$id] ?? null;
+        if ($post === null) {
+            return ActionResult::fail(Failure::notFound('No such post.'));
+        }
+        if ($post['version'] !== $input->version) {
+            return ActionResult::fail(Failure::conflict('Someone else saved this post.'));
+        }
+        if ($input->title === 'taken') {
+            return ActionResult::fail(Failure::validation(['title' => 'is taken']));
+        }
+        $this->posts->posts[$id] = ['title' => $input->title, 'version' => $post['version'] + 1];
+        return ActionResult::ok(view($id, $this->posts->posts[$id]))
+            ->invalidate('posts', "post:{$id}")
+            ->redirect(Redirect::to("/posts/{$id}"))
+            ->cookie(new Cookie('saved', (string) $id))
+            ->cookie(new Cookie('again', '1'));
+    }
+
+    #[Action]
+    public function touch(int $id): void
+    {
+        $this->posts->ran[] = 'touch';
+    }
+
+    #[Action]
+    public function explode(int $id): int
+    {
+        throw new \RuntimeException('It broke after it began.');
+    }
+
+    /** @return QueryData<PostView>|Failure|Redirect */
+    #[Query]
+    public function history(int $id, #[FromQuery] int $limit = 10): QueryData|Failure|Redirect
+    {
+        $this->posts->ran[] = 'history';
+        if ($limit === 0) {
+            return Redirect::to('/login');
+        }
+        if ($limit > 100) {
+            return Failure::forbidden('That is too many.');
+        }
+        return QueryData::of(view($id, $this->posts->posts[$id]))->tags("post:{$id}");
+    }
+
+    #[Query]
+    public function broken(int $id): int
+    {
+        return PHP_INT_MAX;
+    }
+}
+</script>
+import { useState } from 'react';
+import type { Props } from '@psx/types/pages/Posts/Edit';
+
+// A generic and a comparison, which are not PHP: Array<string>, a < b.
+export default function Edit({ data, scope }: Props) {
+    const [title, setTitle] = useState<string>(data.post.title);
+    const save = $savePost.at(scope);
+    return (
+        <form action={async () => { await save({ title, version: data.post.version }); }}>
+            <input name="title" value={title} onChange={event => setTitle(event.target.value)} />
+        </form>
+    );
+}

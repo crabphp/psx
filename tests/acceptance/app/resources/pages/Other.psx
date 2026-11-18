@@ -1,0 +1,26 @@
+<script lang="php">
+use Acceptance\Signed;
+use Crab\Psx\Head;
+use Crab\Psx\PageData;
+use Psr\Http\Message\ServerRequestInterface;
+
+final readonly class OtherData
+{
+    public function __construct(public string $account) {}
+}
+
+final readonly class Server
+{
+    /** @return PageData<OtherData> */
+    public function load(ServerRequestInterface $request): PageData
+    {
+        $account = (string) $request->getAttribute(Signed::ACCOUNT);
+        return PageData::of(new OtherData($account))->head(Head::title("Other of {$account}"));
+    }
+}
+</script>
+import type { Props } from '@psx/types/pages/Other';
+
+export default function Other({ data }: Props) {
+    return <section data-testid="other">Another page of {data.account}</section>;
+}

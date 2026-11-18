@@ -1,0 +1,40 @@
+<script lang="php">
+use Crab\Psx\Tests\Support\Posts;
+use Crab\Routing\FromQuery;
+use Crab\Validation\ListOf;
+
+final readonly class Row
+{
+    public function __construct(public int $id, public string $title) {}
+}
+
+final readonly class Listing
+{
+    public function __construct(
+        #[ListOf(Row::class)]
+        public array $posts,
+        public string $search,
+    ) {}
+}
+
+final readonly class Server
+{
+    public function __construct(private Posts $posts) {}
+
+    public function load(#[FromQuery] string $q = ''): Listing
+    {
+        $rows = [];
+        foreach ($this->posts->posts as $id => $post) {
+            if ($q === '' || str_contains(strtolower($post['title']), strtolower($q))) {
+                $rows[] = new Row($id, $post['title']);
+            }
+        }
+        return new Listing($rows, $q);
+    }
+}
+</script>
+import type { Props } from '@psx/types/pages/Posts/Index';
+
+export default function Index({ data }: Props) {
+    return <ul>{data.posts.map(post => <li key={post.id}>{post.title}</li>)}</ul>;
+}
